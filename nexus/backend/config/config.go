@@ -13,6 +13,7 @@ type Config struct {
 	AppPort      string
 	AppSecret    string
 	DBDriver     string
+	DatabaseURL  string
 	DBPath       string
 	DBHost       string
 	DBPort       string
@@ -37,6 +38,7 @@ func Load() *Config {
 		AppPort:      getEnv("APP_PORT", "3000"),
 		AppSecret:    getEnv("APP_SECRET", "changeme"),
 		DBDriver:     getEnv("DB_DRIVER", "sqlite"),
+		DatabaseURL:  getEnv("DATABASE_URL", ""),
 		DBPath:       getEnv("DB_PATH", "./nexus.db"),
 		DBHost:       getEnv("DB_HOST", "localhost"),
 		DBPort:      getEnv("DB_PORT", "3306"),

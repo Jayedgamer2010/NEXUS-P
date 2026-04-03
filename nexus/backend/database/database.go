@@ -5,8 +5,6 @@ import (
 	"nexus/backend/config"
 	"time"
 
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -15,17 +13,18 @@ var DB *gorm.DB
 
 func Connect(cfg *config.Config) error {
 	var dsn string
-	var dialector gorm.Dialector
 
 	switch cfg.DBDriver {
+	case "postgres":
+		dsn = cfg.DatabaseURL
 	case "mysql":
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 			cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
-		dialector = mysql.Open(dsn)
 	default:
 		dsn = cfg.DBPath
-		dialector = sqlite.Open(dsn)
 	}
+
+	dialector := getDialector(dsn)
 
 	// Production: disable logging for performance
 	gormLogger := logger.Default.LogMode(logger.Silent)
