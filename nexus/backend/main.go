@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -138,17 +139,32 @@ func main() {
 	log.Println("Server stopped")
 }
 
-// autoMigrate runs GORM auto-migration for all models
+// autoMigrate runs GORM auto-migration for all models in dependency order
 func autoMigrate() error {
-	return database.DB.AutoMigrate(
-		&models.User{},
-		&models.Node{},
-		&models.Server{},
-		&models.Egg{},
-		&models.Allocation{},
-		&models.Ticket{},
-		&models.CoinTransaction{},
-	)
+	db := database.DB
+
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		return fmt.Errorf("User migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.Node{}); err != nil {
+		return fmt.Errorf("Node migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.Egg{}); err != nil {
+		return fmt.Errorf("Egg migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.Allocation{}); err != nil {
+		return fmt.Errorf("Allocation migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.Server{}); err != nil {
+		return fmt.Errorf("Server migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.Ticket{}); err != nil {
+		return fmt.Errorf("Ticket migration failed: %w", err)
+	}
+	if err := db.AutoMigrate(&models.CoinTransaction{}); err != nil {
+		return fmt.Errorf("CoinTransaction migration failed: %w", err)
+	}
+	return nil
 }
 
 // errorHandler custom error handler
