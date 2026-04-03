@@ -1,0 +1,38 @@
+.stat-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stat-icon {
+  font-size: 24px;
+}
+
+.stat-title {
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-family: Inter, sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat-subtitle {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
