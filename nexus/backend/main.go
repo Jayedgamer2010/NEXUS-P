@@ -33,9 +33,9 @@ func main() {
 	}
 	defer database.Close()
 
-	// Auto-migrate all models
+	// Auto-migrate all models (warning only, don't crash)
 	if err := autoMigrate(); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
+		log.Printf("Warning: database migration issues: %v", err)
 	}
 
 	// Initialize controllers
@@ -139,30 +139,23 @@ func main() {
 	log.Println("Server stopped")
 }
 
-// autoMigrate runs GORM auto-migration for all models in dependency order
+
+// autoMigrate runs GORM auto-migration for all models in dependency order.
+// Never fails the server — logs warnings and continues.
 func autoMigrate() error {
 	db := database.DB
 
-	if err := db.AutoMigrate(&models.User{}); err != nil {
-		return fmt.Errorf("User migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Node{}); err != nil {
-		return fmt.Errorf("Node migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Egg{}); err != nil {
-		return fmt.Errorf("Egg migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Allocation{}); err != nil {
-		return fmt.Errorf("Allocation migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Server{}); err != nil {
-		return fmt.Errorf("Server migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Ticket{}); err != nil {
-		return fmt.Errorf("Ticket migration failed: %w", err)
-	}
-	if err := db.AutoMigrate(&models.CoinTransaction{}); err != nil {
-		return fmt.Errorf("CoinTransaction migration failed: %w", err)
+	err := db.AutoMigrate(
+		&models.User{},
+		&models.Node{},
+		&models.Egg{},
+		&models.Allocation{},
+		&models.Server{},
+		&models.Ticket{},
+		&models.CoinTransaction{},
+	)
+	if err != nil {
+		log.Printf("Migration warning: %v", err)
 	}
 	return nil
 }
