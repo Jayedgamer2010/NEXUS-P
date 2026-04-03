@@ -3,6 +3,7 @@ WORKDIR /app
 COPY nexus/go.mod nexus/go.sum ./
 RUN go mod download
 COPY nexus/ .
+RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -o nexus-backend ./backend/main.go
 
 FROM alpine:latest
