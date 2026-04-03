@@ -98,7 +98,7 @@ func (c *Client) CreateServer(serverUUID string, startOnCompletion bool) error {
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.Error)
+		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
 	}
 
 	return nil
@@ -115,7 +115,7 @@ func (c *Client) DeleteServer(serverUUID string) error {
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		var errResp ErrorResponse
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.Error)
+		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
 	}
 
 	return nil
@@ -134,7 +134,7 @@ func (c *Client) SendPowerAction(serverUUID, action string) error {
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.Error)
+		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
 	}
 
 	return nil

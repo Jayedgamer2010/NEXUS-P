@@ -137,7 +137,6 @@ func (uc *UserController) Update(c *fiber.Ctx) error {
 	if req.Coins != 0 {
 		user.Coins = req.Coins
 	}
-	user.RootAdmin = req.RootAdmin
 
 	if err := database.DB.Save(&user).Error; err != nil {
 		return utils.InternalError(c, "Failed to update user")

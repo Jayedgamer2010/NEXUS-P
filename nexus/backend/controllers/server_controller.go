@@ -407,7 +407,7 @@ func (sc *ServerController) GetResources(c *fiber.Ctx) error {
 
 	var server models.Server
 	if err := database.DB.Where("uuid = ? AND user_id = ?", uuid, user.ID).
-		Preload("Node").First(&server); err != nil {
+		Preload("Node").First(&server).Error; err != nil {
 		return utils.Error(c, fiber.StatusNotFound, "Server not found")
 	}
 
