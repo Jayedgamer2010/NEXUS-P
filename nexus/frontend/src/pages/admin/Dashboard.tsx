@@ -18,14 +18,14 @@ export default function Dashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [serversRes] = await Promise.all([
+      const [serversRes, nodesRes, usersRes] = await Promise.all([
         adminApi.getServers(1, 100),
+        adminApi.getNodes(1, 1),
+        adminApi.getUsers(1, 1),
       ]);
       setServers(serversRes.data);
-
-      // Get counts from first page total
-      setNodesCount(serversRes.total); // Placeholder - would need separate node count API
-      setUsersCount(serversRes.total); // Placeholder - would need separate user count API
+      setNodesCount(nodesRes.total);
+      setUsersCount(usersRes.total);
     } catch (error) {
       console.error('Failed to load dashboard:', error);
     } finally {

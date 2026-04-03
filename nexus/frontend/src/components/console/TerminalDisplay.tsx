@@ -37,7 +37,7 @@ export default function TerminalDisplay({ onMessage, connectionStatus }: Termina
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    term.writeln('\x1b[36m%s\x1b[0m', `[NEXUS] Console initialized`);
+    term.writeln('[NEXUS] Console initialized');
 
     return () => {
       term.dispose();

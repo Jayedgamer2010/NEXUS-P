@@ -23,7 +23,10 @@ export function useConsole({ serverUUID, onMessage, autoReconnect = true, maxRec
     }
 
     setConnectionStatus('connecting');
-    const wsUrl = `ws://localhost:3000/ws/console?server_uuid=${serverUUID}&token=${token}`;
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const wsProtocol = baseUrl.startsWith('https') ? 'wss' : 'ws';
+    const host = baseUrl.replace(/^https?:\/\//, '');
+    const wsUrl = `${wsProtocol}://${host}/ws/console?server_uuid=${serverUUID}&token=${token}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
