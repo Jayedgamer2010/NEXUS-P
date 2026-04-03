@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "deploy": {
+    "numReplicas": 1,
+    "sleepApplication": false
+  },
+  "build": {
+    "builder": "DOCKERFILE",
+    "watchPatterns": [
+      "Dockerfile.*",
+      "nexus/**"
+    ]
+  }
+}
