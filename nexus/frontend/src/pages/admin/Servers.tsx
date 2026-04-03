@@ -102,7 +102,7 @@ export default function Servers() {
     { key: 'actions', header: 'Actions', render: (_, row) => (
       <div className="table-actions">
         <button onClick={() => navigate(`/admin/servers/${row.uuid}`)}>View</button>
-        <button onClick={() => handlePowerAction(row.id, row.status === 'running' ? 'stop' : 'start')}>
+        <button onClick={() => handlePowerAction(row.id, row.status === 'running' ? PowerAction.STOP : PowerAction.START)}>
           {row.status === 'running' ? 'Stop' : 'Start'}
         </button>
         <button className="danger" onClick={() => {

@@ -11,7 +11,7 @@ const pageTitleMap: Record<string, string> = {
   '/admin/eggs': 'Eggs',
 };
 
-export default function Layout() {
+export default function Layout({ children }: { children?: React.ReactNode }) {
   const location = useLocation();
   const title = pageTitleMap[location.pathname] || 'NEXUS';
 
@@ -21,7 +21,7 @@ export default function Layout() {
       <main className="main-content">
         <Header title={title} />
         <div className="page-content">
-          <Outlet />
+          {children ?? <Outlet />}
         </div>
       </main>
     </div>

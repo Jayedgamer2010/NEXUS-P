@@ -14,7 +14,7 @@ export default function Nodes() {
   const [formData, setFormData] = useState({
     name: '',
     fqdn: '',
-    scheme: 'https',
+    scheme: 'https' as 'http' | 'https',
     wings_port: 8080,
     memory: 0,
     memory_overalloc: 0,

@@ -49,7 +49,6 @@ export default function ServerDetail() {
         background: '#000000',
         foreground: '#10b981',
         cursor: '#10b981',
-        selection: '#7c3aed',
       },
       scrollback: 1000,
     });
@@ -62,7 +61,7 @@ export default function ServerDetail() {
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    term.writeln('\x1b[36m%s\x1b[0m', `[NEXUS] Console ready`);
+    term.writeln(`\x1b[36m[NEXUS]\x1b[0m Console ready`);
 
     return () => {
       term.dispose();

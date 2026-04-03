@@ -13,7 +13,7 @@ export function useConsole({ serverUUID, onMessage, autoReconnect = true, maxRec
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const token = useAuthStore((state) => state.token);
 
   const connect = useCallback(() => {

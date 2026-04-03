@@ -1,10 +1,10 @@
 import api from './client';
-import { User, Server, Node, Egg, PaginatedResponse, ApiResponse, PowerAction } from '../types';
+import { User, Server, Node, Egg, ApiResponse, PowerAction } from '../types';
 
 export const adminApi = {
   // Users
-  getUsers: async (page = 1, limit = 20): Promise<PaginatedResponse<User>> => {
-    return api.get<PaginatedResponse<User>>('/api/admin/users', { page, limit });
+  getUsers: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
+    return api.get<any>('/api/admin/users', { page, limit });
   },
 
   createUser: async (data: {
@@ -26,8 +26,8 @@ export const adminApi = {
   },
 
   // Nodes
-  getNodes: async (page = 1, limit = 20): Promise<PaginatedResponse<Node>> => {
-    return api.get<PaginatedResponse<Node>>('/api/admin/nodes', { page, limit });
+  getNodes: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
+    return api.get<any>('/api/admin/nodes', { page, limit });
   },
 
   createNode: async (data: {
@@ -64,8 +64,8 @@ export const adminApi = {
   },
 
   // Servers
-  getServers: async (page = 1, limit = 20): Promise<PaginatedResponse<Server>> => {
-    return api.get<PaginatedResponse<Server>>('/api/admin/servers', { page, limit });
+  getServers: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
+    return api.get<any>('/api/admin/servers', { page, limit });
   },
 
   createServer: async (data: {
@@ -96,8 +96,8 @@ export const adminApi = {
   },
 
   // Eggs
-  getEggs: async (page = 1, limit = 20): Promise<PaginatedResponse<Egg>> => {
-    return api.get<PaginatedResponse<Egg>>('/api/admin/eggs', { page, limit });
+  getEggs: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
+    return api.get<any>('/api/admin/eggs', { page, limit });
   },
 
   createEgg: async (data: {

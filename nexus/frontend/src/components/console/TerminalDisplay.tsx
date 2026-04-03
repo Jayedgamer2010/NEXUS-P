@@ -24,8 +24,7 @@ export default function TerminalDisplay({ onMessage, connectionStatus }: Termina
         background: '#000000',
         foreground: '#10b981',
         cursor: '#10b981',
-        selection: '#7c3aed',
-      },
+      } as any,
       scrollback: 1000,
     });
 
