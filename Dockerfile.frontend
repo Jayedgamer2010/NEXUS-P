@@ -5,7 +5,7 @@ RUN npm install
 COPY nexus/frontend/ .
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build
+RUN npm run build || { cat /root/.npm/_logs/*.log 2>/dev/null; exit 1; }
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
