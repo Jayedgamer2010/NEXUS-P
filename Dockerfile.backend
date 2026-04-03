@@ -1,0 +1,13 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY nexus/go.mod nexus/go.sum ./
+RUN go mod download
+COPY nexus/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o nexus-backend ./backend/main.go
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /app/nexus-backend .
+EXPOSE 3000
+CMD ["./nexus-backend"]
