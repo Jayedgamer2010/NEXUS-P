@@ -35,17 +35,11 @@ func (ac *AuthController) Register(c *fiber.Ctx) error {
 		return utils.BadRequest(c, "Username, email, and password are required")
 	}
 
-	// Validate role (only allow admin if it's the first user or explicitly set)
+	// Role is always "client" for self-registration.
+	// Admin accounts are only created via environment variables on startup.
 	role := "client"
 	if req.Role == "admin" {
-		// Check if any admin exists
-		var adminCount int64
-		database.DB.Model(&models.User{}).Where("role = ?", "admin").Count(&adminCount)
-		if adminCount == 0 {
-			role = "admin" // First user can be admin
-		} else {
-			return utils.BadRequest(c, "Cannot self-assign admin role")
-		}
+		return utils.BadRequest(c, "Admin role cannot be self-assigned")
 	}
 
 	// Generate UUID

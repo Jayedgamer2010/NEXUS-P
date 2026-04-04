@@ -31,7 +31,7 @@ export default function TerminalDisplay({ onMessage, connectionStatus }: Termina
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+    requestAnimationFrame(() => fitAddon.fit());
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;

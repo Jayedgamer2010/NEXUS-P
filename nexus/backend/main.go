@@ -14,12 +14,15 @@ import (
 	"nexus/backend/routes"
 	"nexus/backend/wings"
 
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/contrib/websocket"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -36,6 +39,9 @@ func main() {
 	if err := autoMigrate(); err != nil {
 		log.Printf("Warning: database migration issues: %v", err)
 	}
+
+	// Seed admin from environment variables
+	seedAdminFromEnv(database.DB)
 
 	// Initialize controllers
 	authCtl := &controllers.AuthController{}
@@ -59,9 +65,10 @@ func main() {
 	// Middleware
 	app.Use(recover.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
-		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowOrigins:     "*",
+		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
+		AllowCredentials: false,
 	}))
 	app.Use(logger.New())
 	app.Use(limiter.New(limiter.Config{
@@ -69,11 +76,17 @@ func main() {
 		Expiration: 1 * 60 * 1000 * 1000 * 1000, // 1 minute
 	}))
 
+	// OPTIONS preflight handler (must be before routes)
+	app.Options("/*", func(c *fiber.Ctx) error {
+		return c.SendStatus(204)
+	})
+
 	// Health check
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"status": "ok",
-			"app":    cfg.AppName,
+			"status":  "ok",
+			"service": "NEXUS",
+			"version": "1.0.0",
 		})
 	})
 
@@ -144,6 +157,10 @@ func main() {
 func autoMigrate() error {
 	db := database.DB
 
+	// Disable FK checks during migration to avoid constraint errors
+	db.Exec("SET session_replication_role = replica")
+	defer db.Exec("SET session_replication_role = DEFAULT")
+
 	err := db.AutoMigrate(
 		&models.User{},
 		&models.Node{},
@@ -174,4 +191,39 @@ func errorHandler(c *fiber.Ctx, err error) error {
 		"message": message,
 		"data":    nil,
 	})
+}
+
+// seedAdminFromEnv creates an admin user from environment variables if it doesn't already exist.
+func seedAdminFromEnv(db *gorm.DB) {
+	email := os.Getenv("ADMIN_EMAIL")
+	password := os.Getenv("ADMIN_PASSWORD")
+	username := os.Getenv("ADMIN_USERNAME")
+	if email == "" || password == "" {
+		log.Println("Warning: ADMIN_EMAIL or ADMIN_PASSWORD not set, skipping admin seed")
+		return
+	}
+	var user models.User
+	result := db.Where("email = ?", email).First(&user)
+	if result.Error == nil {
+		return // admin already exists
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		log.Printf("Failed to hash admin password: %v", err)
+		return
+	}
+	admin := models.User{
+		UUID:      uuid.New().String(),
+		Username:  username,
+		Email:     email,
+		Password:  string(hashed),
+		Role:      "admin",
+		RootAdmin: true,
+		Coins:     0,
+	}
+	if err := db.Create(&admin).Error; err != nil {
+		log.Printf("Failed to seed admin: %v", err)
+		return
+	}
+	log.Println("Admin account created from environment variables")
 }

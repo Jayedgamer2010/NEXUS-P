@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import './Sidebar.css';
 
 export default function Sidebar() {
   const { user, logout } = useAuthStore();
+  const location = useLocation();
 
   const navItems = [
     { to: '/admin/dashboard', label: 'Dashboard', icon: '📊' },
@@ -20,16 +22,19 @@ export default function Sidebar() {
       </div>
 
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            <span className="nav-label">{item.label}</span>
-          </NavLink>
-        ))}
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + '/');
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={`nav-item${isActive ? ' active' : ''}`}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-label">{item.label}</span>
+            </NavLink>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">

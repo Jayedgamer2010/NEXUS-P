@@ -3,7 +3,6 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import Layout from '../components/layout/Layout';
 import Login from '../pages/auth/Login';
-import Register from '../pages/auth/Register';
 import Dashboard from '../pages/admin/Dashboard';
 import Servers from '../pages/admin/Servers';
 import ServerDetail from '../pages/admin/ServerDetail';
@@ -32,10 +31,6 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <Login />,
-  },
-  {
-    path: '/register',
-    element: <Register />,
   },
   {
     path: '/403',

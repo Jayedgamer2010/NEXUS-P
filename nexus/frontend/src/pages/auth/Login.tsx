@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { authApi } from '../../api/auth';
 import './Auth.css';
@@ -37,7 +37,7 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">NEXUS</div>
-        <h1 className="auth-title">Welcome Back</h1>
+        <h1 className="auth-title">Sign In</h1>
 
         {error && <div className="auth-error">{error}</div>}
 
@@ -49,7 +49,7 @@ export default function Login() {
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com"
+              placeholder="admin@nexus.local"
               required
             />
           </div>
@@ -70,10 +70,6 @@ export default function Login() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
-        <div className="auth-link">
-          Don't have an account? <Link to="/register">Register</Link>
-        </div>
       </div>
     </div>
   );

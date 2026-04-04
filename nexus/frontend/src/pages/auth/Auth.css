@@ -9,30 +9,31 @@
 
 .auth-card {
   width: 100%;
-  max-width: 440px;
-  background: #1a1a2e;
+  max-width: 420px;
+  background: #131318;
   border: 1px solid #2a2a3e;
   border-radius: 12px;
-  padding: 40px;
+  padding: 48px 40px;
 }
 
 .auth-logo {
   text-align: center;
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+  letter-spacing: 0.06em;
 }
 
 .auth-title {
   text-align: center;
-  font-size: 24px;
-  font-weight: 600;
-  color: #e5e7eb;
-  margin: 0 0 24px 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin: 0 0 32px 0;
 }
 
 .auth-error {
@@ -49,7 +50,7 @@
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .form-group {
@@ -65,34 +66,29 @@
   font-family: Inter, sans-serif;
 }
 
-.form-group input,
-.form-group select {
-  padding: 12px 16px;
+.form-group input {
+  padding: 14px 16px;
   background: #0a0a0f;
   border: 1px solid #2a2a3e;
   border-radius: 8px;
   color: #e5e7eb;
-  font-size: 14px;
+  font-size: 15px;
   font-family: Inter, sans-serif;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-group input:focus,
-.form-group select:focus {
+.form-group input:focus {
   border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
 }
 
 .form-group input::placeholder {
   color: #6b7280;
 }
 
-.form-group select {
-  cursor: pointer;
-}
-
 .auth-submit {
-  padding: 14px 24px;
+  padding: 16px 24px;
   background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
   border: none;
   border-radius: 8px;
@@ -101,33 +97,19 @@
   font-weight: 600;
   font-family: Inter, sans-serif;
   cursor: pointer;
-  transition: opacity 0.2s;
-  margin-top: 8px;
+  transition: opacity 0.2s, transform 0.1s;
+  margin-top: 4px;
 }
 
 .auth-submit:hover:not(:disabled) {
-  opacity: 0.9;
+  opacity: 0.92;
+}
+
+.auth-submit:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .auth-submit:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.auth-link {
-  text-align: center;
-  margin-top: 24px;
-  color: #9ca3af;
-  font-size: 14px;
-  font-family: Inter, sans-serif;
-}
-
-.auth-link a {
-  color: #7c3aed;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.auth-link a:hover {
-  text-decoration: underline;
 }

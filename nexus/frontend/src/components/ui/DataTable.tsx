@@ -66,7 +66,7 @@ export default function DataTable<T extends { id: number }>({
           ) : data.length === 0 ? (
             <tr>
               <td colSpan={columns.length + (actionColumn ? 1 : 0)} className="empty-cell">
-                No data available
+                No records found
               </td>
             </tr>
           ) : (

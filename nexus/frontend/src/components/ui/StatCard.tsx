@@ -9,6 +9,7 @@ interface StatCardProps {
 }
 
 export default function StatCard({ title, value, icon, accentColor = '#7c3aed', subtitle }: StatCardProps) {
+  const displayValue = value ?? 0;
   return (
     <div className="stat-card">
       <div className="stat-card-header">
@@ -18,7 +19,7 @@ export default function StatCard({ title, value, icon, accentColor = '#7c3aed', 
         <div className="stat-title">{title}</div>
       </div>
       <div className="stat-value" style={{ color: accentColor }}>
-        {value}
+        {displayValue}
       </div>
       {subtitle && <div className="stat-subtitle">{subtitle}</div>}
     </div>

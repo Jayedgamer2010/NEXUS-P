@@ -23,6 +23,14 @@ export default function Modal({ isOpen, onClose, title, children, footer }: Moda
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
   if (!isOpen) return null;
 
   return createPortal(
