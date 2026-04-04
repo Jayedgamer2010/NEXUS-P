@@ -2,87 +2,94 @@ package routes
 
 import (
 	"nexus/backend/controllers"
+	"nexus/backend/controllers/admin"
+	"nexus/backend/controllers/client"
 	"nexus/backend/middleware"
-	"nexus/backend/models"
-	"nexus/backend/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// Setup registers all routes
-func Setup(app *fiber.App, authCfg *middleware.AuthConfig, authCtl *controllers.AuthController, userController *controllers.UserController, serverController *controllers.ServerController, nodeController *controllers.NodeController, eggController *controllers.EggController) {
+func Setup(
+	app *fiber.App,
+	authCfg *middleware.AuthConfig,
+	authCtl *controllers.AuthController,
+	userCtl *admin.UserController,
+	serverCtl *admin.ServerController,
+	nodeCtl *admin.NodeController,
+	eggCtl *admin.EggController,
+	statsCtl *admin.StatsController,
+	clientSrvCtl *client.ServerController,
+	accCtl *client.AccountController,
+) {
+	// No auth
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok", "service": "NEXUS", "version": "1.0.0"})
+	})
 
-	// Public auth routes
+	// Auth routes
 	authGroup := app.Group("/api/auth")
-	authGroup.Post("/register", authCtl.Register)
 	authGroup.Post("/login", authCtl.Login)
+	authGroup.Post("/register", authCtl.Register)
 
 	// Protected auth routes
 	authProtected := app.Group("/api/auth", middleware.Auth(authCfg))
 	authProtected.Get("/me", authCtl.Me)
 	authProtected.Post("/logout", authCtl.Logout)
 
-	// Admin routes (require admin role)
-	admin := app.Group("/api/admin", middleware.Auth(authCfg), middleware.Admin)
+	// Client routes (authenticated)
+	clientGroup := app.Group("/api/client", middleware.Auth(authCfg))
+	clientGroup.Get("/account", accCtl.Get)
+	clientGroup.Patch("/account", accCtl.Update)
+	clientGroup.Get("/servers", clientSrvCtl.GetMyServers)
+	clientGroup.Get("/servers/:uuid", clientSrvCtl.GetMyServer)
+	clientGroup.Get("/servers/:uuid/resources", clientSrvCtl.GetResources)
+	clientGroup.Post("/servers/:uuid/power", clientSrvCtl.Power)
 
-	// User management
-	users := admin.Group("/users")
-	users.Get("/", userController.GetAll)
-	users.Post("/", userController.Create)
-	users.Get("/:id", userController.GetByID)
-	users.Patch("/:id", userController.Update)
-	users.Delete("/:id", userController.Delete)
+	// Admin routes
+	adminGroup := app.Group("/api/admin", middleware.Auth(authCfg), middleware.Admin)
 
-	// Node management
-	nodes := admin.Group("/nodes")
-	nodes.Get("/", nodeController.GetAll)
-	nodes.Post("/", nodeController.Create)
-	nodes.Get("/:id", nodeController.GetByID)
-	nodes.Get("/:id/stats", nodeController.GetStats)
-	nodes.Patch("/:id", nodeController.Update)
-	nodes.Delete("/:id", nodeController.Delete)
+	// Users
+	users := adminGroup.Group("/users")
+	users.Get("/", userCtl.GetAll)
+	users.Post("/", userCtl.Create)
+	users.Get("/:id", userCtl.GetByID)
+	users.Patch("/:id", userCtl.Update)
+	users.Delete("/:id", userCtl.Delete)
 
-	// Server management
-	servers := admin.Group("/servers")
-	servers.Get("/", serverController.GetAll)
-	servers.Post("/", serverController.Create)
-	servers.Get("/:id", serverController.GetByID)
-	servers.Patch("/:id", serverController.Update)
-	servers.Delete("/:id", serverController.Delete)
-	servers.Post("/:id/power", serverController.Power)
+	// Servers
+	servers := adminGroup.Group("/servers")
+	servers.Get("/", serverCtl.GetAll)
+	servers.Post("/", serverCtl.Create)
+	servers.Get("/:id", serverCtl.GetByID)
+	servers.Patch("/:id", serverCtl.Update)
+	servers.Delete("/:uuid", serverCtl.Delete)
+	servers.Post("/:uuid/power", serverCtl.Power)
+	servers.Post("/:uuid/suspend", serverCtl.Suspend)
+	servers.Post("/:uuid/unsuspend", serverCtl.Unsuspend)
+	servers.Post("/:uuid/reinstall", serverCtl.Reinstall)
 
-	// Egg management
-	eggs := admin.Group("/eggs")
-	eggs.Get("/", eggController.GetAll)
-	eggs.Post("/", eggController.Create)
-	eggs.Get("/:id", eggController.GetByID)
-	eggs.Patch("/:id", eggController.Update)
-	eggs.Delete("/:id", eggController.Delete)
+	// Nodes
+	nodes := adminGroup.Group("/nodes")
+	nodes.Get("/", nodeCtl.GetAll)
+	nodes.Post("/", nodeCtl.Create)
+	nodes.Get("/:id", nodeCtl.GetByID)
+	nodes.Patch("/:id", nodeCtl.Update)
+	nodes.Delete("/:id", nodeCtl.Delete)
+	nodes.Get("/:id/allocations", nodeCtl.GetAllocations)
+	nodes.Post("/:id/allocations", nodeCtl.CreateAllocation)
 
-	// Client routes (protect all)
-	client := app.Group("/api/client", middleware.Auth(authCfg))
+	// Allocation deletion must be registered before "/:id" to match correctly,
+	// but since we're using groups we handle it separately
+	adminGroup.Delete("/allocations/:allocID", nodeCtl.DeleteAllocation)
 
-	// Client servers
-	client.Get("/servers", serverController.GetMyServers)
-	client.Get("/servers/:uuid", serverController.GetMyServer)
-	client.Get("/servers/:uuid/resources", serverController.GetResources)
+	// Eggs
+	eggs := adminGroup.Group("/eggs")
+	eggs.Get("/", eggCtl.GetAll)
+	eggs.Post("/", eggCtl.Create)
+	eggs.Get("/:id", eggCtl.GetByID)
+	eggs.Patch("/:id", eggCtl.Update)
+	eggs.Delete("/:id", eggCtl.Delete)
 
-	// WebSocket console proxy (requires custom upgrade handling in main or separate router)
-	// For Fiber, we use app.Get("/ws/...", websocket.New(...))
-	// We'll add this directly in main.go, or create a dedicated function
-	// But for simplicity we can do it here using fiber's websocket middleware
-	// However, we need access to Node and wings client. We'll handle this in main.
-
-	// Client account - stubs for now (Phase 2 will extend)
-	client.Get("/account", func(c *fiber.Ctx) error {
-		user, ok := c.Locals("user").(models.User)
-		if !ok {
-			return utils.Unauthorized(c, "Not authenticated")
-		}
-		return utils.Success(c, utils.FromUser(&user), "Account info")
-	})
-	client.Patch("/account", func(c *fiber.Ctx) error {
-		// Placeholder - Phase 2 will implement email/password update
-		return utils.Success(c, nil, "Account update not implemented in Phase 1")
-	})
+	// Stats
+	adminGroup.Get("/stats", statsCtl.GetStats)
 }

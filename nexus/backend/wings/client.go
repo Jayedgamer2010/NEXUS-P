@@ -3,29 +3,24 @@ package wings
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"nexus/backend/models"
 )
 
-// Client for interacting with Wings API
 type Client struct {
-	BaseURL    string
-	Token      string
 	HTTPClient *http.Client
 }
 
-// NewClient creates a new Wings API client
-func NewClient(node *models.Node) *Client {
-	baseURL := fmt.Sprintf("%s://%s:%d", node.Scheme, node.FQDN, node.WingsPort)
-
+func NewClient() *Client {
 	return &Client{
-		BaseURL: baseURL,
-		Token:   node.Token,
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				MaxIdleConns:        10,
 				MaxIdleConnsPerHost: 5,
@@ -35,8 +30,12 @@ func NewClient(node *models.Node) *Client {
 	}
 }
 
-// doRequest performs HTTP requests with authentication
-func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
+func (c *Client) buildURL(node models.Node, path string) string {
+	base := fmt.Sprintf("%s://%s:%d", node.Scheme, node.FQDN, node.DaemonListen)
+	return base + path
+}
+
+func (c *Client) doRequest(method, url string, node models.Node, body interface{}) (*http.Response, error) {
 	var reqBody []byte
 	var err error
 
@@ -47,22 +46,33 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 		}
 	}
 
-	url := c.BaseURL + path
 	req, err := http.NewRequest(method, url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+node.DaemonToken)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	return c.HTTPClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+			return nil, fmt.Errorf("wings unavailable: %w", err)
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return nil, fmt.Errorf("wings request timed out: %w", err)
+		}
+		return nil, fmt.Errorf("wings request failed: %w", err)
+	}
+
+	return resp, nil
 }
 
-// GetServerDetails retrieves server details from Wings
-func (c *Client) GetServerDetails(serverUUID string) (*ServerDetails, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/servers/%s", serverUUID), nil)
+func (c *Client) GetServerDetails(node models.Node, uuid string) (*ServerDetails, error) {
+	url := c.buildURL(node, fmt.Sprintf("/api/servers/%s", uuid))
+	resp, err := c.doRequest("GET", url, node, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +80,10 @@ func (c *Client) GetServerDetails(serverUUID string) (*ServerDetails, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return nil, fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.ErrMsg != "" {
+			return nil, fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		}
+		return nil, fmt.Errorf("wings returned status %d", resp.StatusCode)
 	}
 
 	var details ServerDetails
@@ -82,14 +94,9 @@ func (c *Client) GetServerDetails(serverUUID string) (*ServerDetails, error) {
 	return &details, nil
 }
 
-// CreateServer creates a new server on Wings
-func (c *Client) CreateServer(serverUUID string, startOnCompletion bool) error {
-	payload := CreateServerPayload{
-		UUID:              serverUUID,
-		StartOnCompletion: startOnCompletion,
-	}
-
-	resp, err := c.doRequest("POST", "/api/servers", payload)
+func (c *Client) CreateServer(node models.Node, payload CreateServerPayload) error {
+	url := c.buildURL(node, "/api/servers")
+	resp, err := c.doRequest("POST", url, node, payload)
 	if err != nil {
 		return err
 	}
@@ -97,16 +104,18 @@ func (c *Client) CreateServer(serverUUID string, startOnCompletion bool) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.ErrMsg != "" {
+			return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		}
+		return fmt.Errorf("wings returned status %d", resp.StatusCode)
 	}
 
 	return nil
 }
 
-// DeleteServer deletes a server from Wings
-func (c *Client) DeleteServer(serverUUID string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/servers/%s", serverUUID), nil)
+func (c *Client) DeleteServer(node models.Node, uuid string) error {
+	url := c.buildURL(node, fmt.Sprintf("/api/servers/%s", uuid))
+	resp, err := c.doRequest("DELETE", url, node, nil)
 	if err != nil {
 		return err
 	}
@@ -114,18 +123,20 @@ func (c *Client) DeleteServer(serverUUID string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		var errResp ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.ErrMsg != "" {
+			return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		}
+		return fmt.Errorf("wings returned status %d", resp.StatusCode)
 	}
 
 	return nil
 }
 
-// SendPowerAction sends a power action to the server
-func (c *Client) SendPowerAction(serverUUID, action string) error {
+func (c *Client) SendPowerAction(node models.Node, uuid string, action string) error {
+	url := c.buildURL(node, fmt.Sprintf("/api/servers/%s/power", uuid))
 	payload := PowerActionPayload{Action: action}
 
-	resp, err := c.doRequest("POST", fmt.Sprintf("/api/servers/%s/power", serverUUID), payload)
+	resp, err := c.doRequest("POST", url, node, payload)
 	if err != nil {
 		return err
 	}
@@ -133,25 +144,25 @@ func (c *Client) SendPowerAction(serverUUID, action string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.ErrMsg != "" {
+			return fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		}
+		return fmt.Errorf("wings returned status %d", resp.StatusCode)
 	}
 
 	return nil
 }
 
-// GetServerResources retrieves resource usage from Wings
-func (c *Client) GetServerResources(serverUUID string) (*ServerResources, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/servers/%s/resources", serverUUID), nil)
+func (c *Client) GetServerResources(node models.Node, uuid string) (*ServerResources, error) {
+	url := c.buildURL(node, fmt.Sprintf("/api/servers/%s/resources/utilization", uuid))
+	resp, err := c.doRequest("GET", url, node, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errResp ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return nil, fmt.Errorf("wings error: %s", errResp.ErrMsg)
+		return nil, fmt.Errorf("wings returned status %d", resp.StatusCode)
 	}
 
 	var resources ServerResources
@@ -160,4 +171,24 @@ func (c *Client) GetServerResources(serverUUID string) (*ServerResources, error)
 	}
 
 	return &resources, nil
+}
+
+func (c *Client) GetSystemInfo(node models.Node) (*SystemInfo, error) {
+	url := c.buildURL(node, "/api/system")
+	resp, err := c.doRequest("GET", url, node, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("wings returned status %d", resp.StatusCode)
+	}
+
+	var info SystemInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &info, nil
 }

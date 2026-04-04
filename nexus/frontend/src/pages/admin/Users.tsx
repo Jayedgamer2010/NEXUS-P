@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import { adminApi } from '../../api/admin';
-import { User } from '../../types';
-import './Nodes.css';
+import type { User } from '../../types';
+import './Users.css';
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -81,13 +81,21 @@ export default function Users() {
   const columns = [
     { key: 'username', header: 'Username' },
     { key: 'email', header: 'Email' },
-    { key: 'role', header: 'Role', render: (role: string) => (
-      <span className={`role-badge role-${role}`}>{role.toUpperCase()}</span>
-    )},
+    {
+      key: 'role',
+      header: 'Role',
+      render: (role: string) => (
+        <span className={`role-badge role-${role}`}>{role.toUpperCase()}</span>
+      ),
+    },
     { key: 'coins', header: 'Coins' },
     { key: 'servers_count', header: 'Servers', render: () => '0' },
-    { key: 'created_at', header: 'Created', render: (val: string) => new Date(val).toLocaleDateString() },
-    { key: 'actions', header: 'Actions', render: (_, row: User) => (
+    {
+      key: 'created_at',
+      header: 'Created',
+      render: (val: string) => new Date(val).toLocaleDateString(),
+    },
+    { key: 'actions', header: 'Actions', render: (_val: string, row: User) => (
       <div className="table-actions">
         <button onClick={() => openEdit(row)}>Edit</button>
         <button className="danger" onClick={() => handleDelete(row.id)}>Delete</button>
@@ -96,7 +104,7 @@ export default function Users() {
   ];
 
   return (
-    <div className="nodes-page">
+    <div className="users-page">
       <div className="page-header">
         <h1>Users</h1>
         <button className="primary-btn" onClick={() => setShowModal(true)}>

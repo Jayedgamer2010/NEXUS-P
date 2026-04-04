@@ -7,6 +7,7 @@ import Dashboard from '../pages/admin/Dashboard';
 import Servers from '../pages/admin/Servers';
 import ServerDetail from '../pages/admin/ServerDetail';
 import Nodes from '../pages/admin/Nodes';
+import NodeDetail from '../pages/admin/NodeDetail';
 import Users from '../pages/admin/Users';
 import Eggs from '../pages/admin/Eggs';
 import NotFound from '../pages/errors/404';
@@ -59,6 +60,10 @@ export const router = createBrowserRouter([
   {
     path: '/admin/nodes',
     element: <ProtectedRoute requireAdmin={true}><Nodes /></ProtectedRoute>,
+  },
+  {
+    path: '/admin/nodes/:id',
+    element: <ProtectedRoute requireAdmin={true}><NodeDetail /></ProtectedRoute>,
   },
   {
     path: '/admin/users',

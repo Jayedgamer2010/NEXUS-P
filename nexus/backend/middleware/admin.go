@@ -12,7 +12,7 @@ func Admin(c *fiber.Ctx) error {
 		return utils.Unauthorized(c, "User not authenticated")
 	}
 
-	if user.Role != "admin" {
+	if !user.IsAdmin() {
 		return utils.Forbidden(c, "Admin access required")
 	}
 

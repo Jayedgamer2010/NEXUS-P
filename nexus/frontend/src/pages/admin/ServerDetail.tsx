@@ -7,7 +7,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { useConsole } from '../../hooks/useConsole';
 import { adminApi } from '../../api/admin';
 import { useServerStats } from '../../hooks/useServerStats';
-import { Server, PowerAction } from '../../types';
+import type { Server, PowerAction } from '../../types';
+import { POWER_ACTIONS } from '../../types';
 import './ServerDetail.css';
 
 export default function ServerDetail() {
@@ -107,7 +108,7 @@ export default function ServerDetail() {
     if (!server) return;
     setSendingAction(action);
     try {
-      await adminApi.powerServer(server.id, action);
+      await adminApi.powerServer(server.uuid, action);
       setTimeout(loadServer, 2000);
     } catch (error) {
       console.error('Failed to send power action:', error);
@@ -132,11 +133,11 @@ export default function ServerDetail() {
   if (loading) return <div className="loading">Loading server...</div>;
   if (!server) return null;
 
-  const cpuPercent = stats ? (stats.cpu * 100).toFixed(1) : '0.0';
-  const ramUsed = stats ? formatBytes(stats.memory) : '0 GB';
-  const ramTotal = stats ? formatBytes(stats.memory_max) : formatBytes(server.memory * 1024 * 1024);
-  const diskUsed = stats ? formatBytes(stats.disk) : '0 GB';
-  const diskTotal = stats ? formatBytes(stats.disk_max) : formatBytes(server.disk * 1024 * 1024);
+  const cpuPercent = stats ? (stats.cpu_absolute * 100).toFixed(1) : '0.0';
+  const ramUsed = stats ? formatBytes(stats.memory_bytes) : '0 GB';
+  const ramTotal = stats ? formatBytes(stats.memory_limit_bytes) : formatBytes(server.memory * 1024 * 1024);
+  const diskUsed = stats ? formatBytes(stats.disk_bytes) : '0 GB';
+  const diskTotal = stats ? formatBytes(stats.disk_limit_bytes) : formatBytes(server.disk * 1024 * 1024);
 
   const getStatusColor = () => {
     switch (connectionStatus) {
@@ -173,28 +174,28 @@ export default function ServerDetail() {
         <div className="server-actions">
           <button
             className="action-btn start"
-            onClick={() => handlePowerAction(PowerAction.START)}
+            onClick={() => handlePowerAction('start' as PowerAction)}
             disabled={sendingAction !== null || server.status === 'running'}
           >
             ▶ Start
           </button>
           <button
             className="action-btn restart"
-            onClick={() => handlePowerAction(PowerAction.RESTART)}
+            onClick={() => handlePowerAction('restart' as PowerAction)}
             disabled={sendingAction !== null || server.status !== 'running'}
           >
             ↻ Restart
           </button>
           <button
             className="action-btn stop"
-            onClick={() => handlePowerAction(PowerAction.STOP)}
+            onClick={() => handlePowerAction('stop' as PowerAction)}
             disabled={sendingAction !== null || server.status !== 'running'}
           >
             ◼ Stop
           </button>
           <button
             className="action-btn kill"
-            onClick={() => handlePowerAction(PowerAction.KILL)}
+            onClick={() => handlePowerAction('kill' as PowerAction)}
             disabled={sendingAction !== null}
           >
             ✕ Kill

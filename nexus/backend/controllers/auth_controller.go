@@ -1,129 +1,78 @@
 package controllers
 
 import (
-	"nexus/backend/config"
-	"nexus/backend/database"
 	"nexus/backend/models"
+	"nexus/backend/requests"
+	"nexus/backend/services"
+	"nexus/backend/transformers"
 	"nexus/backend/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-var cfg *config.Config
-
-func Init(c *config.Config) {
-	cfg = c
+type AuthController struct {
+	userService *services.UserService
 }
 
-type AuthController struct{}
+func NewAuthController(userSvc *services.UserService) *AuthController {
+	return &AuthController{userService: userSvc}
+}
 
-// Register handles user registration
 func (ac *AuthController) Register(c *fiber.Ctx) error {
-	var req struct {
-		Username string `json:"username"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Role     string `json:"role"` // admin or client, default client
-	}
-
+	var req requests.RegisterRequest
 	if err := c.BodyParser(&req); err != nil {
 		return utils.BadRequest(c, "Invalid request body")
 	}
-
-	// Validate required fields
-	if req.Username == "" || req.Email == "" || req.Password == "" {
-		return utils.BadRequest(c, "Username, email, and password are required")
+	if errors := utils.ValidateRequest(req); errors != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
 	}
 
-	// Role is always "client" for self-registration.
-	// Admin accounts are only created via environment variables on startup.
-	role := "client"
-	if req.Role == "admin" {
-		return utils.BadRequest(c, "Admin role cannot be self-assigned")
-	}
-
-	// Generate UUID
-	userUUID := utils.GenerateUUID()
-
-	// Create user
-	user := models.User{
-		UUID:     userUUID,
-		Username: req.Username,
-		Email:    req.Email,
-		Password: req.Password,
-		Role:     role,
-		Coins:    0,
-		RootAdmin: role == "admin",
-	}
-
-	if err := database.DB.Create(&user).Error; err != nil {
-		return utils.InternalError(c, "Failed to create user")
-	}
-
-	// Generate JWT
-	token, err := utils.GenerateToken(user.ID, user.UUID, user.Role, cfg)
+	user, token, err := ac.userService.Register(req)
 	if err != nil {
-		return utils.InternalError(c, "Failed to generate token")
+		if err == services.ErrEmailTaken {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Email already in use"))
+		}
+		if err == services.ErrUsernameTaken {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Username already in use"))
+		}
+		return utils.InternalError(c, "Failed to create account")
 	}
 
-	return utils.Success(c, fiber.Map{
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(fiber.Map{
+		"user":  transformers.TransformUser(user.Sanitize()),
 		"token": token,
-		"user":  utils.FromUser(&user),
-	}, "Registration successful")
+	}))
 }
 
-// Login handles user login
 func (ac *AuthController) Login(c *fiber.Ctx) error {
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-
+	var req requests.LoginRequest
 	if err := c.BodyParser(&req); err != nil {
 		return utils.BadRequest(c, "Invalid request body")
 	}
-
-	if req.Email == "" || req.Password == "" {
-		return utils.BadRequest(c, "Email and password are required")
+	if errors := utils.ValidateRequest(req); errors != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
 	}
 
-	// Find user
-	var user models.User
-	if err := database.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		return utils.Unauthorized(c, "Invalid credentials")
-	}
-
-	// Check password
-	if !user.CheckPassword(req.Password) {
-		return utils.Unauthorized(c, "Invalid credentials")
-	}
-
-	// Generate JWT
-	token, err := utils.GenerateToken(user.ID, user.UUID, user.Role, cfg)
+	user, token, err := ac.userService.Login(req)
 	if err != nil {
-		return utils.InternalError(c, "Failed to generate token")
+		return utils.Unauthorized(c, "Invalid credentials")
 	}
 
 	return utils.Success(c, fiber.Map{
+		"user":  transformers.TransformUser(user.Sanitize()),
 		"token": token,
-		"user":  utils.FromUser(&user),
 	}, "Login successful")
 }
 
-// Me returns the current user's info
 func (ac *AuthController) Me(c *fiber.Ctx) error {
-	// Get user from context (set by auth middleware)
 	user, ok := c.Locals("user").(models.User)
 	if !ok {
-		return utils.Unauthorized(c, "User not authenticated")
+		return utils.Unauthorized(c, "Not authenticated")
 	}
 
-	return utils.Success(c, utils.FromUser(&user), "User retrieved")
+	return utils.Success(c, transformers.TransformUser(user.Sanitize()), "User retrieved")
 }
 
-// Logout (optional - JWT is stateless, but included for completeness)
 func (ac *AuthController) Logout(c *fiber.Ctx) error {
-	// JWT is stateless, so we just return success
-	// In a production system, you might want to blacklist the token
-	return utils.Success(c, nil, "Logged out successfully")
+	return utils.Success(c, nil, "Logged out")
 }

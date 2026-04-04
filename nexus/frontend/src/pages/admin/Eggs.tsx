@@ -16,7 +16,7 @@ export default function Eggs() {
     name: '',
     description: '',
     docker_image: '',
-    startup_command: '',
+    startup: '',
   });
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function Eggs() {
     try {
       const response = await adminApi.getEggs(page, 20);
       setEggs(response.data);
-      setTotal(response.total);
+      setTotal(response.total ?? 0);
     } catch (error) {
       console.error('Failed to load eggs:', error);
     } finally {
@@ -46,7 +46,7 @@ export default function Eggs() {
       }
       setShowModal(false);
       setEditingEgg(null);
-      setFormData({ name: '', description: '', docker_image: '', startup_command: '' });
+      setFormData({ name: '', description: '', docker_image: '', startup: '' });
       loadEggs();
     } catch (error) {
       console.error('Failed to save egg:', error);
@@ -71,7 +71,7 @@ export default function Eggs() {
       name: egg.name,
       description: egg.description || '',
       docker_image: egg.docker_image,
-      startup_command: egg.startup_command,
+      startup: egg.startup || '',
     });
     setShowModal(true);
   };
@@ -130,7 +130,7 @@ export default function Eggs() {
           </div>
           <div className="form-row">
             <label>Startup Command</label>
-            <textarea name="startup_command" rows={4} value={formData.startup_command} onChange={(e) => setFormData({...formData, startup_command: e.target.value})} required />
+            <textarea name="startup" rows={4} value={formData.startup} onChange={(e) => setFormData({...formData, startup: e.target.value})} required />
           </div>
         </form>
       </Modal>

@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import { adminApi } from '../../api/admin';
-import { Server } from '../../types';
-import { PowerAction } from '../../types';
+import type { Server, PowerAction } from '../../types';
 import './Servers.css';
 
 export default function Servers() {
@@ -54,7 +53,6 @@ export default function Servers() {
         user_id: parseInt(formData.get('user_id') as string),
         node_id: parseInt(formData.get('node_id') as string),
         egg_id: parseInt(formData.get('egg_id') as string),
-        allocation_id: 1, // TODO: fetch available allocations
         memory: parseInt(formData.get('memory') as string),
         disk: parseInt(formData.get('disk') as string),
         cpu: parseInt(formData.get('cpu') as string),
@@ -70,7 +68,7 @@ export default function Servers() {
   const handleDeleteServer = async () => {
     if (!selectedServer) return;
     try {
-      await adminApi.deleteServer(selectedServer.id);
+      await adminApi.deleteServer(selectedServer.uuid);
       setShowDeleteModal(false);
       setSelectedServer(null);
       loadData();
@@ -80,9 +78,9 @@ export default function Servers() {
     }
   };
 
-  const handlePowerAction = async (serverId: number, action: PowerAction) => {
+  const handlePowerAction = async (serverId: number, uuid: string, action: PowerAction) => {
     try {
-      await adminApi.powerServer(serverId, action);
+      await adminApi.powerServer(uuid, action);
     } catch (error) {
       console.error('Failed to send power action:', error);
       alert('Failed to send power action');
@@ -90,19 +88,19 @@ export default function Servers() {
   };
 
   const columns = [
-    { key: 'uuid', header: 'UUID (short)', render: (uuid: string) => uuid.substring(0, 8) + '...' },
+    { key: 'uuid_short', header: 'UUID (short)', render: (val: string, row: Server) => `${val.substring(0, 8)}...` },
     { key: 'name', header: 'Name' },
-    { key: 'node', header: 'Node', render: (_, row) => row.node?.name || 'N/A' },
-    { key: 'user', header: 'Owner', render: (_, row) => row.user_id },
+    { key: 'node', header: 'Node', render: (_: string, row: Server) => row.node?.name || 'N/A' },
+    { key: 'user', header: 'Owner', render: (_: string, row: Server) => row.user?.username || row.user_id },
     { key: 'memory', header: 'RAM', render: (mem: number) => `${(mem / 1024).toFixed(1)} GB` },
     { key: 'cpu', header: 'CPU', render: (cpu: number) => `${cpu}%` },
     { key: 'status', header: 'Status', render: (status: string) => (
       <span className={`status-badge status-${status}`}>{status}</span>
     )},
-    { key: 'actions', header: 'Actions', render: (_, row) => (
+    { key: 'actions', header: 'Actions', render: (_: string, row: Server) => (
       <div className="table-actions">
         <button onClick={() => navigate(`/admin/servers/${row.uuid}`)}>View</button>
-        <button onClick={() => handlePowerAction(row.id, row.status === 'running' ? PowerAction.STOP : PowerAction.START)}>
+        <button onClick={() => handlePowerAction(row.id, row.uuid, row.status === 'running' ? 'stop' : 'start')}>
           {row.status === 'running' ? 'Stop' : 'Start'}
         </button>
         <button className="danger" onClick={() => {
@@ -186,15 +184,15 @@ export default function Servers() {
           </div>
           <div className="form-row">
             <label>Memory (MB)</label>
-            <input name="memory" type="number" required />
+            <input name="memory" type="number" required defaultValue={512} />
           </div>
           <div className="form-row">
             <label>Disk (MB)</label>
-            <input name="disk" type="number" required />
+            <input name="disk" type="number" required defaultValue={1024} />
           </div>
           <div className="form-row">
             <label>CPU (%)</label>
-            <input name="cpu" type="number" required />
+            <input name="cpu" type="number" required defaultValue={100} />
           </div>
         </form>
       </Modal>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import StatCard from '../../components/ui/StatCard';
 import DataTable from '../../components/ui/DataTable';
 import { adminApi } from '../../api/admin';
-import { Server } from '../../types';
+import type { Server } from '../../types';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -34,9 +34,14 @@ export default function Dashboard() {
   };
 
   const runningServers = servers.filter(s => s.status === 'running').length;
+  const uptimePercent = servers.length > 0 ? Math.round((runningServers / servers.length) * 100) : 0;
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString();
+    try {
+      return new Date(dateStr).toLocaleDateString();
+    } catch {
+      return dateStr;
+    }
   };
 
   return (
@@ -65,7 +70,7 @@ export default function Dashboard() {
           value={runningServers}
           icon="▶️"
           accentColor="#10b981"
-          subtitle={`${servers.length > 0 ? Math.round((runningServers / servers.length) * 100) : 0}% uptime`}
+          subtitle={`${uptimePercent}% of ${servers.length} total`}
         />
       </div>
 
@@ -74,12 +79,28 @@ export default function Dashboard() {
         <DataTable
           columns={[
             { key: 'name', header: 'Name' },
-            { key: 'node', header: 'Node', render: (_, row) => row.node?.name || 'N/A' },
-            { key: 'status', header: 'Status', render: (status) => (
-              <span className={`status-badge ${status}`}>{status}</span>
-            )},
-            { key: 'user', header: 'Owner', render: (_, row) => row.user_id },
-            { key: 'created_at', header: 'Created', render: (value) => formatDate(value) },
+            {
+              key: 'node',
+              header: 'Node',
+              render: (_val: string, row: Server) => row.node?.name || 'N/A',
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (status: string) => (
+                <span className={`status-badge ${status}`}>{status}</span>
+              ),
+            },
+            {
+              key: 'user',
+              header: 'Owner',
+              render: (_val: string, row: Server) => row.user?.username || `ID: ${row.user_id}`,
+            },
+            {
+              key: 'created_at',
+              header: 'Created',
+              render: (val: string) => formatDate(val),
+            },
           ]}
           data={servers.slice(0, 10)}
           loading={loading}

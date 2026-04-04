@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import { adminApi } from '../../api/admin';
-import { Node } from '../../types';
+import type { Node } from '../../types';
 import './Nodes.css';
 
 export default function Nodes() {
@@ -15,14 +16,14 @@ export default function Nodes() {
     name: '',
     fqdn: '',
     scheme: 'https' as 'http' | 'https',
-    wings_port: 8080,
-    memory: 0,
-    memory_overalloc: 0,
-    disk: 0,
-    disk_overalloc: 0,
-    token_id: '',
-    token: '',
+    memory: 1024,
+    disk: 5120,
+    daemon_token_id: '',
+    daemon_token: '',
+    daemon_listen: 8080,
   });
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadNodes();
@@ -44,19 +45,26 @@ export default function Nodes() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await adminApi.createNode(formData);
+      await adminApi.createNode({
+        name: formData.name,
+        fqdn: formData.fqdn,
+        scheme: formData.scheme,
+        memory: formData.memory,
+        disk: formData.disk,
+        daemon_token_id: formData.daemon_token_id,
+        daemon_token: formData.daemon_token,
+        daemon_listen: formData.daemon_listen,
+      });
       setShowModal(false);
       setFormData({
         name: '',
         fqdn: '',
-        scheme: 'https',
-        wings_port: 8080,
-        memory: 0,
-        memory_overalloc: 0,
-        disk: 0,
-        disk_overalloc: 0,
-        token_id: '',
-        token: '',
+        scheme: 'https' as 'http' | 'https',
+        memory: 1024,
+        disk: 5120,
+        daemon_token_id: '',
+        daemon_token: '',
+        daemon_listen: 8080,
       });
       loadNodes();
     } catch (error) {
@@ -81,10 +89,12 @@ export default function Nodes() {
     { key: 'fqdn', header: 'FQDN' },
     { key: 'memory', header: 'Memory', render: (mem: number) => `${(mem / 1024).toFixed(1)} GB` },
     { key: 'disk', header: 'Disk', render: (disk: number) => `${(disk / 1024).toFixed(1)} GB` },
-    { key: 'servers_count', header: 'Servers' }, // would come from stats API
     { key: 'status', header: 'Status', render: () => <span className="status-online">Online</span> },
-    { key: 'actions', header: 'Actions', render: (_, row: Node) => (
-      <button className="danger" onClick={() => handleDelete(row.id)}>Delete</button>
+    { key: 'actions', header: 'Actions', render: (_: string, row: Node) => (
+      <div className="table-actions">
+        <button onClick={() => navigate(`/admin/nodes/${row.id}`)}>View</button>
+        <button className="danger" onClick={() => handleDelete(row.id)}>Delete</button>
+      </div>
     )},
   ];
 
@@ -132,8 +142,8 @@ export default function Nodes() {
             </select>
           </div>
           <div className="form-row">
-            <label>Wings Port</label>
-            <input name="wings_port" type="number" value={formData.wings_port} onChange={(e) => setFormData({...formData, wings_port: parseInt(e.target.value)})} required />
+            <label>Daemon Listen Port</label>
+            <input name="daemon_listen" type="number" value={formData.daemon_listen} onChange={(e) => setFormData({...formData, daemon_listen: parseInt(e.target.value)})} required />
           </div>
           <div className="form-row">
             <label>Memory (MB)</label>
@@ -144,12 +154,12 @@ export default function Nodes() {
             <input name="disk" type="number" value={formData.disk} onChange={(e) => setFormData({...formData, disk: parseInt(e.target.value)})} required />
           </div>
           <div className="form-row">
-            <label>Token ID</label>
-            <input name="token_id" value={formData.token_id} onChange={(e) => setFormData({...formData, token_id: e.target.value})} required />
+            <label>Daemon Token ID</label>
+            <input name="daemon_token_id" value={formData.daemon_token_id} onChange={(e) => setFormData({...formData, daemon_token_id: e.target.value})} required />
           </div>
           <div className="form-row">
-            <label>Token</label>
-            <input name="token" type="password" value={formData.token} onChange={(e) => setFormData({...formData, token: e.target.value})} required />
+            <label>Daemon Token</label>
+            <input name="daemon_token" type="password" value={formData.daemon_token} onChange={(e) => setFormData({...formData, daemon_token: e.target.value})} required />
           </div>
         </form>
       </Modal>

@@ -1,119 +1,117 @@
 import api from './client';
-import { User, Server, Node, Egg, ApiResponse, PowerAction } from '../types';
+import type { User, Server, Node, Egg, PowerAction } from '../types';
 
+// ── Helper types ────────────────────────────────────────────────────────────────
+// After the interceptor, axios returns `res.data` directly, which is the backend
+// envelope: { success, data: T, meta?: {...} }
+// Axios still types it as AxiosResponse, but at runtime it IS the data.
+// We cast the AxiosResponse generic to the unwrapped BackendEnvelope.
+
+interface BackendEnvelope<T> {
+  success: boolean;
+  data: T;
+  meta?: { total: number; per_page: number; current_page: number; last_page: number };
+}
+
+type PageArgs = Parameters<typeof api.get>[1][];
+
+function paged<T>(url: string, page: number, limit: number): Promise<BackendEnvelope<T[]>> {
+  return api.get<any, BackendEnvelope<T[]>>(url, { params: { page, limit } } as PageArgs[0] as any);
+}
+
+function post<T>(url: string, body?: Record<string, unknown>): Promise<BackendEnvelope<T>> {
+  return api.post<any, BackendEnvelope<T>>(url, body);
+}
+
+function patch<T>(url: string, body: Record<string, unknown>): Promise<BackendEnvelope<T>> {
+  return api.patch<any, BackendEnvelope<T>>(url, body);
+}
+
+function get<T>(url: string): Promise<BackendEnvelope<T>> {
+  return api.get<any, BackendEnvelope<T>>(url);
+}
+
+function delete_1(url: string): Promise<void> {
+  return api.delete(url) as Promise<void>;
+}
+
+// ── Paginated list wrapper ──────────────────────────────────────────────────────
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  current_page: number;
+  per_page: number;
+  last_page: number;
+}
+
+function unwrapPaginated<T>(env: BackendEnvelope<T[]>): PaginatedResult<T> {
+  return {
+    data: env.data ?? [],
+    total: env.meta?.total ?? 0,
+    current_page: env.meta?.current_page ?? 1,
+    per_page: env.meta?.per_page ?? 20,
+    last_page: env.meta?.last_page ?? 1,
+  };
+}
+
+// ── API object ──────────────────────────────────────────────────────────────────
 export const adminApi = {
   // Users
-  getUsers: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
-    return api.get<any>('/api/admin/users', { page, limit });
-  },
+  getUsers: (page = 1, limit = 20) => paged<User>('/api/admin/users', page, limit).then(unwrapPaginated),
 
-  createUser: async (data: {
-    username: string;
-    email: string;
-    password: string;
-    role: 'admin' | 'client';
-    coins?: number;
-  }): Promise<ApiResponse<User>> => {
-    return api.post<User>('/api/admin/users', data);
-  },
+  createUser: (data: Record<string, unknown>) => post<User>('/api/admin/users', data).then(e => e.data),
 
-  updateUser: async (id: number, data: Partial<User>): Promise<ApiResponse<User>> => {
-    return api.patch<User>(`/api/admin/users/${id}`, data);
-  },
+  updateUser: (id: number, data: Record<string, unknown>) => patch<User>(`/api/admin/users/${id}`, data).then(e => e.data),
 
-  deleteUser: async (id: number): Promise<ApiResponse<null>> => {
-    return api.delete<null>(`/api/admin/users/${id}`);
-  },
+  deleteUser: (id: number) => delete_1(`/api/admin/users/${id}`),
 
   // Nodes
-  getNodes: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
-    return api.get<any>('/api/admin/nodes', { page, limit });
-  },
+  getNodes: (page = 1, limit = 20) => paged<Node>('/api/admin/nodes', page, limit).then(unwrapPaginated),
 
-  createNode: async (data: {
-    name: string;
-    fqdn: string;
-    scheme?: 'http' | 'https';
-    wings_port?: number;
-    memory: number;
-    memory_overalloc: number;
-    disk: number;
-    disk_overalloc: number;
-    token_id: string;
-    token: string;
-  }): Promise<ApiResponse<Node>> => {
-    return api.post<Node>('/api/admin/nodes', data);
-  },
+  createNode: (data: Record<string, unknown>) => post<Node>('/api/admin/nodes', data).then(e => e.data),
 
-  updateNode: async (id: number, data: Partial<Node>): Promise<ApiResponse<Node>> => {
-    return api.patch<Node>(`/api/admin/nodes/${id}`, data);
-  },
+  updateNode: (id: number, data: Record<string, unknown>) => patch<Node>(`/api/admin/nodes/${id}`, data).then(e => e.data),
 
-  deleteNode: async (id: number): Promise<ApiResponse<null>> => {
-    return api.delete<null>(`/api/admin/nodes/${id}`);
-  },
+  deleteNode: (id: number) => delete_1(`/api/admin/nodes/${id}`),
 
-  getNodeStats: async (id: number): Promise<ApiResponse<{
-    total_memory: number;
-    total_disk: number;
-    memory_limit: number;
-    disk_limit: number;
-    server_count: number;
-  }>> => {
-    return api.get(`/api/admin/nodes/${id}/stats`);
-  },
+  // Node allocations
+  getNodeAllocations: (nodeId: number) => get<any[]>(`/api/admin/nodes/${nodeId}/allocations`).then(e => e.data),
+
+  createAllocation: (nodeId: number, data: { ip: string; port: number }) =>
+    post<any>(`/api/admin/nodes/${nodeId}/allocations`, data).then(e => e.data),
+
+  deleteAllocation: (allocId: number) => delete_1(`/api/admin/allocations/${allocId}`),
 
   // Servers
-  getServers: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
-    return api.get<any>('/api/admin/servers', { page, limit });
-  },
+  getServers: (page = 1, limit = 20) => paged<Server>('/api/admin/servers', page, limit).then(unwrapPaginated),
 
-  createServer: async (data: {
-    name: string;
-    user_id: number;
-    node_id: number;
-    egg_id: number;
-    allocation_id: number;
-    memory: number;
-    disk: number;
-    cpu: number;
-    startup?: string;
-    image?: string;
-  }): Promise<ApiResponse<{ id: number; uuid: string; status: string }>> => {
-    return api.post('/api/admin/servers', data);
-  },
+  createServer: (data: Record<string, unknown>) => post<Server>('/api/admin/servers', data).then(e => e.data),
 
-  updateServer: async (id: number, data: Partial<Server>): Promise<ApiResponse<Server>> => {
-    return api.patch<Server>(`/api/admin/servers/${id}`, data);
-  },
+  updateServer: (id: number, data: Record<string, unknown>) => patch<Server>(`/api/admin/servers/${id}`, data).then(e => e.data),
 
-  deleteServer: async (id: number): Promise<ApiResponse<null>> => {
-    return api.delete<null>(`/api/admin/servers/${id}`);
-  },
+  deleteServer: (uuid: string) => delete_1(`/api/admin/servers/${uuid}`),
 
-  powerServer: async (id: number, action: PowerAction): Promise<ApiResponse<null>> => {
-    return api.post<null>(`/api/admin/servers/${id}/power`, { action });
-  },
+  powerServer: (uuid: string, action: PowerAction) =>
+    post<null>(`/api/admin/servers/${uuid}/power`, { action }).then(e => e.data),
+
+  suspendServer: (uuid: string) => post<null>(`/api/admin/servers/${uuid}/suspend`).then(e => e.data),
+
+  unsuspendServer: (uuid: string) => post<null>(`/api/admin/servers/${uuid}/unsuspend`).then(e => e.data),
+
+  reinstallServer: (uuid: string) => post<null>(`/api/admin/servers/${uuid}/reinstall`).then(e => e.data),
 
   // Eggs
-  getEggs: async (page = 1, limit = 20): Promise<ApiResponse<any>> => {
-    return api.get<any>('/api/admin/eggs', { page, limit });
-  },
+  getEggs: (page = 1, limit = 20) => paged<Egg>('/api/admin/eggs', page, limit).then(unwrapPaginated),
 
-  createEgg: async (data: {
-    name: string;
-    description?: string;
-    docker_image: string;
-    startup_command: string;
-  }): Promise<ApiResponse<Egg>> => {
-    return api.post<Egg>('/api/admin/eggs', data);
-  },
+  createEgg: (data: Record<string, unknown>) => post<Egg>('/api/admin/eggs', data).then(e => e.data),
 
-  updateEgg: async (id: number, data: Partial<Egg>): Promise<ApiResponse<Egg>> => {
-    return api.patch<Egg>(`/api/admin/eggs/${id}`, data);
-  },
+  updateEgg: (id: number, data: Record<string, unknown>) => patch<Egg>(`/api/admin/eggs/${id}`, data).then(e => e.data),
 
-  deleteEgg: async (id: number): Promise<ApiResponse<null>> => {
-    return api.delete<null>(`/api/admin/eggs/${id}`);
-  },
+  deleteEgg: (id: number) => delete_1(`/api/admin/eggs/${id}`),
+
+  // Stats
+  getStats: () => get<any>('/api/admin/stats').then(e => e.data),
+
+  // Server detail by ID (single server fetch)
+  getServerById: (id: number) => get<Server>(`/api/admin/servers/${id}`).then(e => e.data),
 };

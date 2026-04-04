@@ -1,0 +1,47 @@
+.nexus-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.nexus-btn.btn--sm { padding: 6px 12px; font-size: 12px; }
+.nexus-btn.btn--md { padding: 8px 16px; font-size: 14px; }
+.nexus-btn.btn--lg { padding: 12px 24px; font-size: 16px; }
+
+.nexus-btn.btn--primary { background: #7c3aed; color: #fff; }
+.nexus-btn.btn--primary:hover:not(.btn--disabled) { background: #6d28d9; }
+
+.nexus-btn.btn--secondary { background: #3b82f6; color: #fff; }
+.nexus-btn.btn--secondary:hover:not(.btn--disabled) { background: #2563eb; }
+
+.nexus-btn.btn--danger { background: #dc2626; color: #fff; }
+.nexus-btn.btn--danger:hover:not(.btn--disabled) { background: #b91c1c; }
+
+.nexus-btn.btn--warning { background: #f59e0b; color: #000; }
+.nexus-btn.btn--warning:hover:not(.btn--disabled) { background: #d97706; }
+
+.nexus-btn.btn--ghost { background: rgba(255,255,255,0.05); color: #9ca3af; border: 1px solid #252535; }
+.nexus-btn.btn--ghost:hover:not(.btn--disabled) { background: #1e1e30; color: #e5e7eb; }
+
+.nexus-btn.btn--disabled { opacity: 0.5; cursor: not-allowed; }
+
+.nexus-btn.btn--loading { pointer-events: none; }
+
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }

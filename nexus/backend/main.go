@@ -8,17 +8,19 @@ import (
 
 	"nexus/backend/config"
 	"nexus/backend/controllers"
+	"nexus/backend/controllers/admin"
+	"nexus/backend/controllers/client"
 	"nexus/backend/database"
 	"nexus/backend/middleware"
 	"nexus/backend/models"
+	"nexus/backend/repositories"
 	"nexus/backend/routes"
+	"nexus/backend/services"
 	"nexus/backend/wings"
 
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -26,76 +28,72 @@ import (
 )
 
 func main() {
-	// Load configuration
 	cfg := config.Load()
 
-	// Connect to database
 	if err := database.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Close()
 
-	// Auto-migrate all models (warning only, don't crash)
 	if err := autoMigrate(); err != nil {
-		log.Printf("Warning: database migration issues: %v", err)
+		log.Printf("Warning: migration issues: %v", err)
 	}
 
-	// Seed admin from environment variables
 	seedAdminFromEnv(database.DB)
 
-	// Initialize controllers
-	authCtl := &controllers.AuthController{}
-	userCtl := &controllers.UserController{}
-	serverCtl := &controllers.ServerController{}
-	nodeCtl := &controllers.NodeController{}
-	eggCtl := &controllers.EggController{}
-	controllers.Init(cfg)
+	db := database.DB
+	wingsSvc := services.NewWingsService()
 
-	// Create Fiber app
+	userRepo := repositories.NewUserRepository(db)
+	serverRepo := repositories.NewServerRepository(db)
+	nodeRepo := repositories.NewNodeRepository(db)
+	eggRepo := repositories.NewEggRepository(db)
+	allocRepo := repositories.NewAllocationRepository(db)
+
+	userSvc := services.NewUserService(userRepo, cfg)
+	serverSvc := services.NewServerService(serverRepo, nodeRepo, eggRepo, userRepo, allocRepo, wingsSvc)
+	nodeSvc := services.NewNodeService(nodeRepo, allocRepo, wingsSvc)
+	eggSvc := services.NewEggService(eggRepo, serverRepo, db)
+
+	// Seed default eggs
+	if err := eggSvc.SeedDefaults(); err != nil {
+		log.Printf("Warning: egg seeding issues: %v", err)
+	}
+
+	authCtl := controllers.NewAuthController(userSvc)
+	userCtl := admin.NewUserController(userSvc, allocRepo)
+	serverCtl := admin.NewServerController(serverSvc)
+	nodeCtl := admin.NewNodeController(nodeSvc)
+	eggCtl := admin.NewEggController(eggSvc)
+	statsCtl := admin.NewStatsController(userRepo, serverRepo, nodeRepo, wingsSvc)
+	clientSrvCtl := client.NewServerController(serverSvc, wingsSvc)
+	accCtl := client.NewAccountController(userRepo)
+
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.AppName,
 		ErrorHandler:          errorHandler,
 		DisableStartupMessage: true,
-		// Production timeouts
-		ReadTimeout:  30 * 1000 * 1000 * 1000, // 30s
-		WriteTimeout: 30 * 1000 * 1000 * 1000, // 30s
-		IdleTimeout:  120 * 1000 * 1000 * 1000, // 120s
+		ReadTimeout:           30 * 1e9,
+		WriteTimeout:          30 * 1e9,
+		IdleTimeout:           120 * 1e9,
 	})
 
-	// Middleware
-	app.Use(recover.New())
+	// CORS - must be first
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "*",
-		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
-		AllowCredentials: false,
+		AllowOriginsFunc:     func(origin string) bool { return true },
+		AllowMethods:         "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+		AllowHeaders:         "Origin,Content-Type,Accept,Authorization,X-Requested-With",
+		AllowCredentials:     false,
+		MaxAge:               300,
 	}))
-	app.Use(logger.New())
-	app.Use(limiter.New(limiter.Config{
-		Max:        100,
-		Expiration: 1 * 60 * 1000 * 1000 * 1000, // 1 minute
-	}))
+	app.Options("/*", func(c *fiber.Ctx) error { return c.SendStatus(204) })
 
-	// OPTIONS preflight handler (must be before routes)
-	app.Options("/*", func(c *fiber.Ctx) error {
-		return c.SendStatus(204)
-	})
+	app.Use(recover.New())
 
-	// Health check
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"status":  "ok",
-			"service": "NEXUS",
-			"version": "1.0.0",
-		})
-	})
-
-	// Setup routes
 	authCfg := &middleware.AuthConfig{JWTSecret: cfg.JWTSecret}
-	routes.Setup(app, authCfg, authCtl, userCtl, serverCtl, nodeCtl, eggCtl)
+	routes.Setup(app, authCfg, authCtl, userCtl, serverCtl, nodeCtl, eggCtl, statsCtl, clientSrvCtl, accCtl)
 
-	// WebSocket console route
-	// Format: /ws/console?server_uuid=<uuid>
+	// WebSocket console
 	app.Get("/ws/console", middleware.Auth(authCfg), websocket.New(func(c *websocket.Conn) {
 		serverUUID := c.Query("server_uuid")
 		if serverUUID == "" {
@@ -104,7 +102,6 @@ func main() {
 			return
 		}
 
-		// Get user from context
 		user, ok := c.Locals("user").(models.User)
 		if !ok {
 			c.WriteJSON(fiber.Map{"error": "Unauthorized"})
@@ -112,27 +109,23 @@ func main() {
 			return
 		}
 
-		// Fetch server with node
 		var server models.Server
-		if err := database.DB.Where("uuid = ? AND user_id = ?", serverUUID, user.ID).
+		if err := db.Where("uuid = ? AND user_id = ?", serverUUID, user.ID).
 			Preload("Node").First(&server).Error; err != nil {
 			c.WriteJSON(fiber.Map{"error": "Server not found or access denied"})
 			c.Close()
 			return
 		}
 
-		// Create console connection to Wings
 		conn := wings.NewConsoleConnection(&server.Node, server.UUID)
 		if err := conn.ConnectConsole(c); err != nil {
 			log.Printf("Console connection error: %v", err)
 		}
 	}))
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start server in goroutine
 	go func() {
 		log.Printf("%s starting on port %s", cfg.AppName, cfg.AppPort)
 		if err := app.Listen(":" + cfg.AppPort); err != nil {
@@ -140,28 +133,20 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt
 	<-quit
 	log.Println("Shutting down server...")
-
 	if err := app.Shutdown(); err != nil {
 		log.Fatalf("Error during shutdown: %v", err)
 	}
-
 	log.Println("Server stopped")
 }
 
-
-// autoMigrate runs GORM auto-migration for all models in dependency order.
-// Never fails the server — logs warnings and continues.
 func autoMigrate() error {
 	db := database.DB
-
-	// Disable FK checks during migration to avoid constraint errors
 	db.Exec("SET session_replication_role = replica")
 	defer db.Exec("SET session_replication_role = DEFAULT")
 
-	err := db.AutoMigrate(
+	return db.AutoMigrate(
 		&models.User{},
 		&models.Node{},
 		&models.Egg{},
@@ -170,13 +155,8 @@ func autoMigrate() error {
 		&models.Ticket{},
 		&models.CoinTransaction{},
 	)
-	if err != nil {
-		log.Printf("Migration warning: %v", err)
-	}
-	return nil
 }
 
-// errorHandler custom error handler
 func errorHandler(c *fiber.Ctx, err error) error {
 	code := fiber.StatusInternalServerError
 	message := "Internal Server Error"
@@ -193,7 +173,6 @@ func errorHandler(c *fiber.Ctx, err error) error {
 	})
 }
 
-// seedAdminFromEnv creates an admin user from environment variables if it doesn't already exist.
 func seedAdminFromEnv(db *gorm.DB) {
 	email := os.Getenv("ADMIN_EMAIL")
 	password := os.Getenv("ADMIN_PASSWORD")
@@ -203,9 +182,8 @@ func seedAdminFromEnv(db *gorm.DB) {
 		return
 	}
 	var user models.User
-	result := db.Where("email = ?", email).First(&user)
-	if result.Error == nil {
-		return // admin already exists
+	if db.Where("email = ?", email).First(&user).Error == nil {
+		return // already exists
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {

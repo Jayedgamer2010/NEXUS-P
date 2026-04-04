@@ -1,30 +1,50 @@
 package utils
 
 import (
-	"nexus/backend/models"
-
 	"github.com/gofiber/fiber/v2"
 )
 
-type Response struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
+func SuccessResponse(data interface{}) fiber.Map {
+	return fiber.Map{
+		"success": true,
+		"data":    data,
+	}
+}
+
+func ErrorResponse(message string) fiber.Map {
+	return fiber.Map{
+		"success": false,
+		"message": message,
+	}
+}
+
+func ValidationErrorResponse(errors map[string]string) fiber.Map {
+	return fiber.Map{
+		"success": false,
+		"message": "Validation failed",
+		"errors":  errors,
+	}
 }
 
 func Success(c *fiber.Ctx, data interface{}, message string) error {
-	return c.Status(fiber.StatusOK).JSON(Response{
-		Success: true,
-		Message: message,
-		Data:    data,
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": message,
+		"data":    data,
 	})
 }
 
 func Error(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(Response{
-		Success: false,
-		Message: message,
-		Data:    nil,
+	return c.Status(status).JSON(fiber.Map{
+		"success": false,
+		"message": message,
+	})
+}
+
+func InternalError(c *fiber.Ctx, message string) error {
+	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		"success": false,
+		"message": message,
 	})
 }
 
@@ -32,68 +52,42 @@ func Unauthorized(c *fiber.Ctx, message string) error {
 	if message == "" {
 		message = "Unauthorized"
 	}
-	return Error(c, fiber.StatusUnauthorized, message)
+	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+		"success": false,
+		"message": message,
+	})
 }
 
 func Forbidden(c *fiber.Ctx, message string) error {
 	if message == "" {
 		message = "Forbidden"
 	}
-	return Error(c, fiber.StatusForbidden, message)
-}
-
-func BadRequest(c *fiber.Ctx, message string) error {
-	return Error(c, fiber.StatusBadRequest, message)
-}
-
-func InternalError(c *fiber.Ctx, message string) error {
-	return Error(c, fiber.StatusInternalServerError, message)
-}
-
-// PaginatedResponse for list endpoints
-type PaginatedResponse struct {
-	Success bool          `json:"success"`
-	Message string        `json:"message"`
-	Data    []interface{} `json:"data"`
-	Total   int64         `json:"total"`
-	Page    int           `json:"page"`
-	Limit   int           `json:"limit"`
-}
-
-func Paginated(c *fiber.Ctx, data []interface{}, total int64, page, limit int) error {
-	return c.Status(fiber.StatusOK).JSON(PaginatedResponse{
-		Success: true,
-		Message: "",
-		Data:    data,
-		Total:   total,
-		Page:    page,
-		Limit:   limit,
+	return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+		"success": false,
+		"message": message,
 	})
 }
 
-// Standard JSON structure for user responses (hide sensitive fields)
-type UserResponse struct {
-	ID        uint   `json:"id"`
-	UUID      string `json:"uuid"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	Coins     int    `json:"coins"`
-	RootAdmin bool   `json:"root_admin"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+func BadRequest(c *fiber.Ctx, message string) error {
+	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		"success": false,
+		"message": message,
+	})
 }
 
-func FromUser(user *models.User) *UserResponse {
-	return &UserResponse{
-		ID:        user.ID,
-		UUID:      user.UUID,
-		Username:  user.Username,
-		Email:     user.Email,
-		Role:      user.Role,
-		Coins:     user.Coins,
-		RootAdmin: user.RootAdmin,
-		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: user.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+func Paginated(c *fiber.Ctx, data interface{}, total int64, page, limit int) error {
+	lastPage := int(total) / limit
+	if int(total)%limit != 0 {
+		lastPage++
 	}
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    data,
+		"meta": fiber.Map{
+			"total":        total,
+			"per_page":     limit,
+			"current_page": page,
+			"last_page":    lastPage,
+		},
+	})
 }
