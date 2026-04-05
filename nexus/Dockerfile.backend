@@ -1,0 +1,29 @@
+# -------------- Builder --------------
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install build deps
+RUN apk add --no-cache git ca-certificates
+
+# Copy go mod files first (better layer caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy all source code
+COPY . .
+
+# Build with verbose output so Railway logs show actual errors
+RUN CGO_ENABLED=0 GOOS=linux go build -v -o /app/nexus-backend ./backend/main.go
+
+# -------------- Runtime --------------
+FROM alpine:3.19
+
+WORKDIR /app
+
+COPY --from=builder /app/nexus-backend /app/nexus-backend
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+EXPOSE 3001
+
+CMD ["/app/nexus-backend"]
