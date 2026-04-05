@@ -1,6 +1,6 @@
 module nexus
 
-go 1.25.0
+go 1.22.12
 
 require (
 	github.com/gofiber/contrib/websocket v1.3.4
