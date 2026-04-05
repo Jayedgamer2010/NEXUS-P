@@ -1,238 +1,165 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import DataTable from '../../components/ui/DataTable';
-import Modal from '../../components/ui/Modal';
-import ConfirmDialog from '../../components/ui/ConfirmDialog';
-import { adminApi } from '../../api/admin';
-import type { Node, Allocation } from '../../types';
-import { formatBytes } from '../../utils/format';
-import './NodeDetail.css';
+import { useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { useApi } from '../../hooks/useApi'
+import { nodesApi } from '../../api/admin/nodes'
+import type { Node, Allocation } from '../../types'
+import DataTable from '../../components/ui/DataTable'
+import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
+import Input from '../../components/ui/Input'
+import Spinner from '../../components/ui/Spinner'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { formatMB, formatDate } from '../../utils/format'
+import StatusBadge from '../../components/ui/StatusBadge'
+
+interface AllocationExt extends Allocation {
+  server_name?: string
+}
 
 export default function NodeDetail() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const numericId = parseInt(id || '0', 10);
+  const { id } = useParams<{ id: string }>()
+  const nodeId = Number(id)
+  const [showAllocationModal, setShowAllocationModal] = useState(false)
+  const [allocForm, setAllocForm] = useState({ ip: '', port: '' })
+  const [deleteAllocId, setDeleteAllocId] = useState<number | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  const [node, setNode] = useState<Node | null>(null);
-  const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [online, setOnline] = useState(false);
+  const { data: node, loading: nodeLoading } = useApi<Node>(
+    () => nodesApi.getOne(nodeId),
+    [nodeId]
+  )
 
-  // Create allocation modal state
-  const [showCreateAllocation, setShowCreateAllocation] = useState(false);
-  const [allocIp, setAllocIp] = useState('');
-  const [allocPort, setAllocPort] = useState('');
+  const { data: allocations, loading: allocLoading, refetch: refetchAllocs } = useApi<AllocationExt[]>(
+    () => nodesApi.getAllocations(nodeId),
+    [nodeId]
+  )
 
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<Allocation | null>(null);
-
-  useEffect(() => {
-    loadData();
-  }, [id]);
-
-  const loadData = async () => {
-    if (!numericId) return;
-    setLoading(true);
+  const handleAddAllocation = async () => {
+    if (!allocForm.port) return
+    setSubmitting(true)
     try {
-      const [nodeResult, allocResult] = await Promise.all([
-        adminApi.getNodes(1, 100),
-        adminApi.getNodeAllocations(numericId),
-      ]);
-
-      const foundNode = nodeResult.data.find((n) => n.id === numericId);
-      if (!foundNode) {
-        navigate('/admin/nodes');
-        return;
-      }
-
-      setNode(foundNode);
-      setOnline(foundNode.fqdn ? true : false);
-      setAllocations(allocResult.map((a: any) => ({
-        id: a.id,
-        node_id: a.node_id,
-        ip: a.ip,
-        ip_alias: null,
-        port: a.port,
-        server_id: a.server_id,
-        assigned: a.server_id !== null,
-        server_name: a.server?.name,
-        notes: a.notes || '',
-        created_at: a.created_at,
-      })));
-    } catch (error) {
-      console.error('Failed to load node:', error);
-      navigate('/admin/nodes');
+      await nodesApi.addAllocation(nodeId, {
+        ip: allocForm.ip || '0.0.0.0',
+        port: Number(allocForm.port),
+      })
+      setShowAllocationModal(false)
+      setAllocForm({ ip: '', port: '' })
+      refetchAllocs()
+    } catch {
     } finally {
-      setLoading(false);
+      setSubmitting(false)
     }
-  };
+  }
 
-  // Delete node
-  const handleDeleteNode = async () => {
-    if (!node) return;
-    try {
-      await adminApi.deleteNode(node.id);
-      navigate('/admin/nodes');
-    } catch (error) {
-      console.error('Failed to delete node:', error);
-      alert('Failed to delete node');
-    }
-  };
-
-  // Create allocation
-  const handleCreateAllocation = async () => {
-    if (!node || !allocPort) return;
-    try {
-      await adminApi.createAllocation(node.id, {
-        ip: allocIp || node.fqdn,
-        port: parseInt(allocPort, 10),
-      });
-      setShowCreateAllocation(false);
-      setAllocIp('');
-      setAllocPort('');
-      loadData();
-    } catch (error) {
-      console.error('Failed to create allocation:', error);
-      alert('Failed to create allocation');
-    }
-  };
-
-  // Delete allocation
   const handleDeleteAllocation = async () => {
-    if (!deleteTarget) return;
+    if (!deleteAllocId) return
     try {
-      await adminApi.deleteAllocation(deleteTarget.id);
-      setDeleteTarget(null);
-      loadData();
-    } catch (error) {
-      console.error('Failed to delete allocation:', error);
-      alert('Failed to delete allocation');
+      await nodesApi.deleteAllocation(deleteAllocId)
+      refetchAllocs()
+    } catch {
+    } finally {
+      setDeleteAllocId(null)
     }
-  };
+  }
 
-  if (loading) return <div className="loading">Loading node...</div>;
-  if (!node) return null;
+  const allocColumns = [
+    { key: 'ip', header: 'IP', render: (row: AllocationExt) => (
+      <span className="nx-mono">{row.ip || '0.0.0.0'}</span>
+    )},
+    { key: 'port', header: 'Port', render: (row: AllocationExt) => (
+      <span className="nx-mono">{row.port}</span>
+    )},
+    { key: 'alias', header: 'Alias', render: (row: AllocationExt) => (
+      <span>{row.ip_alias || '-'}</span>
+    )},
+    { key: 'assigned', header: 'Assigned To', render: (row: AllocationExt) => (
+      <span style={{ color: row.server_id ? '#ffffff' : '#6b7280' }}>
+        {row.server_id ? (row.server_name || `Server #${row.server_id}`) : 'Unassigned'}
+      </span>
+    )},
+    { key: 'actions', header: 'Actions', render: (row: AllocationExt) => (
+      row.server_id ? null : (
+        <Button variant="ghost" size="sm" onClick={() => setDeleteAllocId(row.id)}>
+          <span style={{ color: '#ef4444' }}>Delete</span>
+        </Button>
+      )
+    ), width: '90px' },
+  ]
 
-  const memUsed = node.used_memory || 0;
-  const memTotal = node.memory || 0;
-  const diskUsed = node.used_disk || 0;
-  const diskTotal = node.disk || 0;
-  const memPercent = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
-  const diskPercent = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : 0;
+  if (nodeLoading || !node) {
+    return <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="lg" /></div>
+  }
 
   return (
-    <div className="node-detail">
-      <div className="node-header">
-        <div className="node-info">
-          <h1>{node.name}</h1>
-          <div className="node-meta">
-            <code>{node.fqdn}</code>
-            <span className={`status-badge ${online ? 'online' : 'offline'}`}>
-              {online ? 'Online' : 'Offline'}
-            </span>
-          </div>
+    <div>
+      {/* Node Info */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700 }}>{node.name}</h2>
+          <StatusBadge status={node.maintenance_mode ? 'suspended' : 'running'} />
         </div>
-        <button className="danger-btn" onClick={handleDeleteNode}>
-          Delete Node
-        </button>
-      </div>
-
-      {/* Resource bars */}
-      <div className="resource-bars">
-        <div className="resource-bar">
-          <div className="resource-label">
-            Memory: {formatBytes(memUsed * 1024 * 1024)} / {formatBytes(memTotal * 1024 * 1024)} ({memPercent}%)
+        <div className="nx-grid-4">
+          <div className="nx-stat-card">
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>FQDN</div>
+            <div style={{ fontSize: 14, fontWeight: 500 }} className="nx-mono">{node.fqdn}</div>
           </div>
-          <div className="bar-track">
-            <div className="bar-fill bar-fill--purple" style={{ width: `${Math.min(memPercent, 100)}%` }} />
+          <div className="nx-stat-card">
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Memory</div>
+            <div style={{ fontSize: 20, fontWeight: 600 }}>{formatMB(node.memory)}</div>
           </div>
-        </div>
-        <div className="resource-bar">
-          <div className="resource-label">
-            Disk: {formatBytes(diskUsed * 1024 * 1024)} / {formatBytes(diskTotal * 1024 * 1024)} ({diskPercent}%)
+          <div className="nx-stat-card">
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Disk</div>
+            <div style={{ fontSize: 20, fontWeight: 600 }}>{formatMB(node.disk)}</div>
           </div>
-          <div className="bar-track">
-            <div className="bar-fill bar-fill--blue" style={{ width: `${Math.min(diskPercent, 100)}%` }} />
+          <div className="nx-stat-card">
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Ports</div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>
+              Daemon: {node.daemon_listen} / SFTP: {node.daemon_sftp}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Allocations */}
-      <div className="allocations-section">
-        <div className="section-header">
-          <h2>Allocations ({allocations.length})</h2>
-          <button className="primary-btn" onClick={() => setShowCreateAllocation(true)}>
-            + Add Allocation
-          </button>
+      <div className="card">
+        <div className="nx-section-title">
+          <span>Allocations</span>
+          <Button variant="ghost" size="sm" onClick={() => setShowAllocationModal(true)}>
+            Add Allocation
+          </Button>
         </div>
-
-        <DataTable
-          columns={[
-            {
-              key: 'ip',
-              header: 'IP Address',
-              render: (val: string, row) => row.assigned ? (
-                <span className="alloc-assigned">{val}:{row.port}</span>
-              ) : (
-                <span className="alloc-unassigned">{val}:{row.port}</span>
-              ),
-            },
-            {
-              key: 'server',
-              header: 'Assigned To',
-              render: (val: string, row: Allocation) => row.server_name ? (
-                row.server_name
-              ) : (
-                <span className="text-muted">Unassigned</span>
-              ),
-            },
-            { key: 'actions', header: 'Actions', render: (val: string, row: Allocation) => (
-              row.assigned ? (
-                <span className="text-muted">&mdash;</span>
-              ) : (
-                <button className="danger-btn-sm" onClick={() => setDeleteTarget(row)}>
-                  Delete
-                </button>
-              )
-            )},
-          ]}
-          data={allocations}
-          loading={false}
-          emptyMessage="No allocations on this node"
-        />
+        <DataTable columns={allocColumns} data={allocations ?? []} loading={allocLoading} />
       </div>
 
-      {/* Create Allocation Modal */}
-      <Modal
-        isOpen={showCreateAllocation}
-        onClose={() => { setShowCreateAllocation(false); setAllocIp(''); setAllocPort(''); }}
-        title="Add Allocation"
-        footer={
-          <>
-            <button onClick={() => { setShowCreateAllocation(false); setAllocIp(''); setAllocPort(''); }}>Cancel</button>
-            <button className="primary" onClick={handleCreateAllocation}>Create</button>
-          </>
-        }
-      >
-        <div className="form-row">
-          <label>IP Address (optional, defaults to node FQDN)</label>
-          <input value={allocIp} onChange={(e) => setAllocIp(e.target.value)} placeholder={node.fqdn} />
-        </div>
-        <div className="form-row">
-          <label>Port</label>
-          <input type="number" value={allocPort} onChange={(e) => setAllocPort(e.target.value)} required placeholder="25565" />
+      {/* Add Allocation Modal */}
+      <Modal isOpen={showAllocationModal} onClose={() => setShowAllocationModal(false)} title="Add Allocation" size="sm">
+        <Input
+          label="IP Address"
+          value={allocForm.ip}
+          onChange={(e) => setAllocForm({ ...allocForm, ip: e.target.value })}
+          placeholder="Leave empty for 0.0.0.0"
+        />
+        <Input
+          label="Port"
+          type="number"
+          value={allocForm.port}
+          onChange={(e) => setAllocForm({ ...allocForm, port: e.target.value })}
+          placeholder="25565"
+        />
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+          <Button variant="ghost" onClick={() => setShowAllocationModal(false)}>Cancel</Button>
+          <Button loading={submitting} onClick={handleAddAllocation}>Add</Button>
         </div>
       </Modal>
 
-      {/* Delete Allocation Confirm */}
       <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
+        isOpen={!!deleteAllocId}
+        onClose={() => setDeleteAllocId(null)}
         onConfirm={handleDeleteAllocation}
         title="Delete Allocation"
-        message={deleteTarget ? `Delete ${deleteTarget.ip}:${deleteTarget.port}? This action cannot be undone.` : ''}
-        confirmLabel="Delete"
+        message="Are you sure you want to delete this allocation?"
+        confirmText="Delete"
       />
     </div>
-  );
+  )
 }

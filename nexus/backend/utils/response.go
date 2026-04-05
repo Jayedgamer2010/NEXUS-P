@@ -1,93 +1,36 @@
 package utils
 
-import (
-	"github.com/gofiber/fiber/v2"
-)
+import "github.com/gofiber/fiber/v2"
 
-func SuccessResponse(data interface{}) fiber.Map {
-	return fiber.Map{
-		"success": true,
-		"data":    data,
-	}
+type APIResponse struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+	Errors  interface{} `json:"errors,omitempty"`
 }
 
-func ErrorResponse(message string) fiber.Map {
-	return fiber.Map{
-		"success": false,
-		"message": message,
-	}
+func Success(c *fiber.Ctx, data interface{}) error {
+	return c.JSON(APIResponse{Success: true, Data: data})
 }
 
-func ValidationErrorResponse(errors map[string]string) fiber.Map {
-	return fiber.Map{
-		"success": false,
-		"message": "Validation failed",
-		"errors":  errors,
-	}
-}
-
-func Success(c *fiber.Ctx, data interface{}, message string) error {
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": message,
-		"data":    data,
-	})
+func SuccessMessage(c *fiber.Ctx, message string, data interface{}) error {
+	return c.JSON(APIResponse{Success: true, Message: message, Data: data})
 }
 
 func Error(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-	})
+	return c.Status(status).JSON(APIResponse{Success: false, Message: message})
 }
 
-func InternalError(c *fiber.Ctx, message string) error {
-	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-	})
+func ValidationError(c *fiber.Ctx, errors interface{}) error {
+	return c.Status(422).JSON(APIResponse{Success: false, Message: "Validation failed", Errors: errors})
 }
 
-func Unauthorized(c *fiber.Ctx, message string) error {
-	if message == "" {
-		message = "Unauthorized"
-	}
-	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-	})
-}
-
-func Forbidden(c *fiber.Ctx, message string) error {
-	if message == "" {
-		message = "Forbidden"
-	}
-	return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-	})
-}
-
-func BadRequest(c *fiber.Ctx, message string) error {
-	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-	})
-}
-
-func Paginated(c *fiber.Ctx, data interface{}, total int64, page, limit int) error {
-	lastPage := int(total) / limit
-	if int(total)%limit != 0 {
-		lastPage++
-	}
-	return c.JSON(fiber.Map{
-		"success": true,
-		"data":    data,
-		"meta": fiber.Map{
-			"total":        total,
-			"per_page":     limit,
-			"current_page": page,
-			"last_page":    lastPage,
-		},
+func PaginatedResponse(c *fiber.Ctx, data interface{}, meta interface{}) error {
+	return c.JSON(APIResponse{
+		Success: true,
+		Data: struct {
+			Data interface{} `json:"data"`
+			Meta interface{} `json:"meta"`
+		}{Data: data, Meta: meta},
 	})
 }

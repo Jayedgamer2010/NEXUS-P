@@ -1,45 +1,26 @@
-import './Input.css';
-
-interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'children'> {
-  label?: string;
-  error?: string;
-  helperText?: string;
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  error?: string
+  helper?: string
 }
 
-export default function Input({
-  label,
-  error,
-  helperText,
-  id,
-  className = '',
-  ...props
-}: InputProps) {
-  const inputId = id || `input-${Math.random().toString(36).slice(2)}`;
-
+export default function Input({ label, error, helper, required, className = '', type = 'text', ...props }: InputProps) {
   return (
-    <div className={`input-wrapper ${className}`}>
+    <div className="nx-form-group">
       {label && (
-        <label htmlFor={inputId} className="input-label">
+        <label className="nx-input-label">
           {label}
+          {required && <span style={{ color: '#ef4444', marginLeft: 4 }}>*</span>}
         </label>
       )}
       <input
-        id={inputId}
-        className={`input-field ${error ? 'input-field--error' : ''}`}
-        aria-invalid={!!error}
-        aria-describedby={error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined}
+        type={type}
+        className={`nx-input ${error ? 'nx-input--error' : ''} ${className}`}
+        required={required}
         {...props}
       />
-      {error && (
-        <p id={`${inputId}-error`} className="input-error">
-          {error}
-        </p>
-      )}
-      {helperText && !error && (
-        <p id={`${inputId}-helper`} className="input-helper">
-          {helperText}
-        </p>
-      )}
+      {error && <div className="nx-input-error">{error}</div>}
+      {!error && helper && <div className="nx-input-helper">{helper}</div>}
     </div>
-  );
+  )
 }

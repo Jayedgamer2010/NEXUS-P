@@ -1,10 +1,15 @@
 package database
 
 import (
-	"fmt"
-	"nexus/backend/config"
+	"log"
+	"os"
 	"time"
 
+	"nexus/backend/config"
+	"nexus/backend/models"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -12,53 +17,80 @@ import (
 var DB *gorm.DB
 
 func Connect(cfg *config.Config) error {
-	var dsn string
+	var db *gorm.DB
+	var err error
 
-	switch cfg.DBDriver {
-	case "postgres":
-		dsn = cfg.DatabaseURL
-	case "mysql":
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-			cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
-	default:
-		dsn = cfg.DBPath
+	logLevel := logger.Silent
+	if os.Getenv("APP_ENV") != "production" {
+		logLevel = logger.Info
 	}
 
-	dialector := getDialector(dsn)
-
-	// Production: disable logging for performance
-	gormLogger := logger.Default.LogMode(logger.Silent)
-
-	db, err := gorm.Open(dialector, &gorm.Config{
-		Logger:      gormLogger,
-		PrepareStmt: true,
-	})
-	if err != nil {
-		return err
+	gormConfig := &gorm.Config{
+		Logger: logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+			SlowThreshold:             time.Second,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  true,
+		}),
 	}
 
-	// Configure connection pool for low RAM VPS
+	if cfg.DBDriver == "postgres" && cfg.DatabaseURL != "" {
+		db, err = gorm.Open(postgres.Open(cfg.DatabaseURL), gormConfig)
+		if err != nil {
+			return err
+		}
+	} else {
+		db, err = gorm.Open(sqlite.Open(cfg.DBPath), gormConfig)
+		if err != nil {
+			return err
+		}
+	}
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-
-	// Max 10 open connections, max 5 idle
-	sqlDB.SetMaxOpenConns(10)
-	sqlDB.SetMaxIdleConns(5)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(10)
 
 	DB = db
+
+	if err := runMigrations(); err != nil {
+		log.Printf("Warning: some migrations failed: %v", err)
+	}
+
 	return nil
 }
 
-func Close() error {
-	if DB == nil {
-		return nil
+func runMigrations() error {
+	// Disable foreign key checks for postgres during migration
+	if DB.Dialector.Name() == "postgres" {
+		DB.Exec("SET session_replication_role = replica")
 	}
-	sqlDB, err := DB.DB()
-	if err != nil {
-		return err
+
+	migrations := []func() error{
+		func() error { return DB.AutoMigrate(&models.User{}) },
+		func() error { return DB.AutoMigrate(&models.Node{}) },
+		func() error { return DB.AutoMigrate(&models.Egg{}) },
+		func() error { return DB.AutoMigrate(&models.Allocation{}) },
+		func() error { return DB.AutoMigrate(&models.Server{}) },
+		func() error { return DB.AutoMigrate(&models.Ticket{}) },
+		func() error { return DB.AutoMigrate(&models.CoinTransaction{}) },
 	}
-	return sqlDB.Close()
+
+	var errs []error
+	for _, m := range migrations {
+		if err := m(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if DB.Dialector.Name() == "postgres" {
+		DB.Exec("SET session_replication_role = DEFAULT")
+	}
+
+	if len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
 }

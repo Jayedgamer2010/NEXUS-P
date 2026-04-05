@@ -1,89 +1,61 @@
-import React from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
-import Layout from '../components/layout/Layout';
-import Login from '../pages/auth/Login';
-import Dashboard from '../pages/admin/Dashboard';
-import Servers from '../pages/admin/Servers';
-import ServerDetail from '../pages/admin/ServerDetail';
-import Nodes from '../pages/admin/Nodes';
-import NodeDetail from '../pages/admin/NodeDetail';
-import Users from '../pages/admin/Users';
-import UserDetail from '../pages/admin/UserDetail';
-import Eggs from '../pages/admin/Eggs';
-import NotFound from '../pages/errors/404';
-import Forbidden from '../pages/errors/403';
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
+import Login from '../pages/auth/Login'
+import Layout from '../components/layout/Layout'
+import Dashboard from '../pages/admin/Dashboard'
+import Servers from '../pages/admin/Servers'
+import ServerDetail from '../pages/admin/ServerDetail'
+import Nodes from '../pages/admin/Nodes'
+import NodeDetail from '../pages/admin/NodeDetail'
+import Users from '../pages/admin/Users'
+import Eggs from '../pages/admin/Eggs'
+import NotFound from '../pages/errors/NotFound'
+import Forbidden from '../pages/errors/Forbidden'
+import { useAuthStore } from '../store/authStore'
 
 // Protected route wrapper
-function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) {
-  const { isAuthenticated, user } = useAuthStore();
+function AdminRoute() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const user = useAuthStore((s) => s.user)
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!user?.root_admin && user?.role !== 'admin') return <Navigate to="/403" replace />
+  return <Outlet />
+}
 
-  if (requireAdmin && user?.role !== 'admin') {
-    return <Navigate to="/403" replace />;
-  }
-
-  return <Layout>{children}</Layout>;
+function GuestRoute() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  if (isAuthenticated) return <Navigate to="/admin/dashboard" replace />
+  return <Outlet />
 }
 
 export const router = createBrowserRouter([
   {
     path: '/login',
-    element: <Login />,
-  },
-  {
-    path: '/403',
-    element: <Forbidden />,
-  },
-  {
-    path: '/404',
-    element: <NotFound />,
+    element: <GuestRoute />,
+    children: [{ index: true, element: <Login /> }],
   },
   {
     path: '/admin',
-    element: <ProtectedRoute requireAdmin={true}><Navigate to="/admin/dashboard" replace /></ProtectedRoute>,
+    element: <AdminRoute />,
+    children: [
+      {
+        path: '/admin',
+        element: <Layout />,
+        children: [
+          { path: '', element: <Navigate to="/admin/dashboard" replace /> },
+          { path: 'dashboard', element: <Dashboard /> },
+          { path: 'servers', element: <Servers /> },
+          { path: 'servers/:id', element: <ServerDetail /> },
+          { path: 'nodes', element: <Nodes /> },
+          { path: 'nodes/:id', element: <NodeDetail /> },
+          { path: 'users', element: <Users /> },
+          { path: 'eggs', element: <Eggs /> },
+        ],
+      },
+    ],
   },
-  {
-    path: '/admin/dashboard',
-    element: <ProtectedRoute requireAdmin={true}><Dashboard /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/servers',
-    element: <ProtectedRoute requireAdmin={true}><Servers /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/servers/:id',
-    element: <ProtectedRoute requireAdmin={true}><ServerDetail /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/nodes',
-    element: <ProtectedRoute requireAdmin={true}><Nodes /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/nodes/:id',
-    element: <ProtectedRoute requireAdmin={true}><NodeDetail /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/users',
-    element: <ProtectedRoute requireAdmin={true}><Users /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/users/:id',
-    element: <ProtectedRoute requireAdmin={true}><UserDetail /></ProtectedRoute>,
-  },
-  {
-    path: '/admin/eggs',
-    element: <ProtectedRoute requireAdmin={true}><Eggs /></ProtectedRoute>,
-  },
-  {
-    path: '/',
-    element: <Navigate to="/admin/dashboard" replace />,
-  },
-  {
-    path: '*',
-    element: <NotFound />,
-  },
-]);
+  { path: '/403', element: <Forbidden /> },
+  { path: '/404', element: <NotFound /> },
+  { path: '/', element: <Navigate to="/admin/dashboard" replace /> },
+  { path: '*', element: <NotFound /> },
+])

@@ -1,36 +1,35 @@
-import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError } from 'axios'
+import axios from 'axios'
 
-const api: AxiosInstance = axios.create({
+const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
+  timeout: 15000,
 })
 
-api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const token = localStorage.getItem('auth_token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
+apiClient.interceptors.request.use((config) => {
+  const stored = localStorage.getItem('nexus-auth')
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored)
+      const token = parsed?.state?.token
+      if (token) config.headers.Authorization = 'Bearer ' + token
+    } catch { /* ignore parse errors */ }
+  }
   return config
 })
 
-api.interceptors.response.use(
-  res => res.data,
-  (err: AxiosError) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('auth_token')
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('nexus-auth')
       window.location.href = '/login'
     }
-    return Promise.reject(err.response?.data || err)
+    return Promise.reject(error)
   }
 )
 
-// Helper to extract paginated data
-export interface PaginatedResponse<T> {
-  data: T[]
-  meta: {
-    total: number
-    per_page: number
-    current_page: number
-    last_page: number
-  }
-}
-
-export default api
+export default apiClient

@@ -1,10 +1,7 @@
 package repositories
 
 import (
-	"errors"
-
 	"nexus/backend/models"
-	"nexus/backend/utils"
 
 	"gorm.io/gorm"
 )
@@ -17,23 +14,19 @@ func NewEggRepository(db *gorm.DB) *EggRepository {
 	return &EggRepository{db: db}
 }
 
-func (r *EggRepository) All(page, perPage int) ([]models.Egg, int64, error) {
-	page, perPage = utils.SanitizePagination(page, perPage)
+func (r *EggRepository) FindAll() ([]models.Egg, error) {
 	var eggs []models.Egg
-	var total int64
-
-	r.db.Model(&models.Egg{}).Count(&total)
-	err := utils.Paginate(r.db, page, perPage).Find(&eggs).Error
-	return eggs, total, err
+	err := r.db.Find(&eggs).Error
+	return eggs, err
 }
 
 func (r *EggRepository) FindByID(id uint) (*models.Egg, error) {
 	var egg models.Egg
 	err := r.db.First(&egg, id).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+	if err != nil {
+		return nil, err
 	}
-	return &egg, err
+	return &egg, nil
 }
 
 func (r *EggRepository) Create(egg *models.Egg) error {
@@ -44,12 +37,12 @@ func (r *EggRepository) Update(egg *models.Egg) error {
 	return r.db.Save(egg).Error
 }
 
-func (r *EggRepository) Delete(egg *models.Egg) error {
-	return r.db.Delete(egg).Error
+func (r *EggRepository) Delete(id uint) error {
+	return r.db.Delete(&models.Egg{}, id).Error
 }
 
-func (r *EggRepository) Count() (int64, error) {
-	var total int64
-	err := r.db.Model(&models.Egg{}).Count(&total).Error
-	return total, err
+func (r *EggRepository) CountByEggID(id uint) int64 {
+	var count int64
+	r.db.Model(&models.Server{}).Where("egg_id = ?", id).Count(&count)
+	return count
 }

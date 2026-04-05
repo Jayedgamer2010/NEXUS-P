@@ -2,6 +2,8 @@ package client
 
 import (
 	"nexus/backend/models"
+	"nexus/backend/repositories"
+	"nexus/backend/requests"
 	"nexus/backend/services"
 	"nexus/backend/transformers"
 	"nexus/backend/utils"
@@ -10,91 +12,101 @@ import (
 )
 
 type ServerController struct {
-	svc          *services.ServerService
-	wingsService *services.WingsService
+	serverRepo   *repositories.ServerRepository
+	serverSvc    *services.ServerService
+	nodeRepo     *repositories.NodeRepository
 }
 
-func NewServerController(svc *services.ServerService, wingsSvc *services.WingsService) *ServerController {
-	return &ServerController{svc: svc, wingsService: wingsSvc}
-}
-
-func (sc *ServerController) GetMyServers(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
+func NewClientServerController(
+	serverRepo *repositories.ServerRepository,
+	serverSvc *services.ServerService,
+	nodeRepo *repositories.NodeRepository,
+) *ServerController {
+	return &ServerController{
+		serverRepo: serverRepo,
+		serverSvc:  serverSvc,
+		nodeRepo:   nodeRepo,
 	}
+}
 
-	servers, err := sc.svc.FindByUserID(user.ID)
+func (ctrl *ServerController) GetAll(c *fiber.Ctx) error {
+	user := c.Locals("user").(*models.User)
+
+	servers, err := ctrl.serverRepo.FindByUserID(user.ID)
 	if err != nil {
-		return utils.InternalError(c, "Failed to fetch servers")
+		return utils.Error(c, 500, "Failed to fetch servers")
 	}
 
-	result := transformers.TransformServers(servers)
-	return utils.Success(c, result, "Servers retrieved")
+	items := make([]transformers.ServerItem, 0, len(servers))
+	for _, s := range servers {
+		items = append(items, transformers.TransformServer(s))
+	}
+
+	return utils.Success(c, items)
 }
 
-func (sc *ServerController) GetMyServer(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
-	}
+func (ctrl *ServerController) GetOne(c *fiber.Ctx) error {
+	user := c.Locals("user").(*models.User)
+	uid := c.Params("uuid")
 
-	uuid := c.Params("uuid")
-	server, err := sc.svc.FindByUUID(uuid)
-	if err != nil || server == nil || server.UserID != user.ID {
-		return utils.Error(c, fiber.StatusNotFound, "Server not found")
-	}
-
-	return utils.Success(c, transformers.TransformServer(*server), "Server retrieved")
-}
-
-func (sc *ServerController) GetResources(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
-	}
-
-	uuid := c.Params("uuid")
-	server, err := sc.svc.FindByUUID(uuid)
-	if err != nil || server == nil || server.UserID != user.ID {
-		return utils.Error(c, fiber.StatusNotFound, "Server not found")
-	}
-
-	node, err := sc.svc.FindByUUID(uuid)
-	_ = node
-	resources, err := sc.wingsService.GetServerResources(server.Node, server.UUID)
+	server, err := ctrl.serverRepo.FindByUUID(uid)
 	if err != nil {
-		return utils.Error(c, fiber.StatusBadGateway, "Node is offline")
+		return utils.Error(c, 404, "Server not found")
 	}
 
-	return utils.Success(c, resources, "Resources retrieved")
+	if server.UserID != user.ID {
+		return utils.Error(c, 403, "Not authorized to access this server")
+	}
+
+	return utils.Success(c, transformers.TransformServerDetail(*server))
 }
 
-func (sc *ServerController) Power(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
+func (ctrl *ServerController) GetResources(c *fiber.Ctx) error {
+	user := c.Locals("user").(*models.User)
+	uid := c.Params("uuid")
+
+	server, err := ctrl.serverRepo.FindByUUID(uid)
+	if err != nil {
+		return utils.Error(c, 404, "Server not found")
 	}
 
-	uuid := c.Params("uuid")
-	server, err := sc.svc.FindByUUID(uuid)
-	if err != nil || server == nil || server.UserID != user.ID {
-		return utils.Error(c, fiber.StatusNotFound, "Server not found")
+	if server.UserID != user.ID {
+		return utils.Error(c, 403, "Not authorized to access this server")
 	}
 
-	var req struct {
-		Action string `json:"action" validate:"required,oneof=start stop restart kill"`
+	resources, err := ctrl.serverSvc.GetServerResources(server.ID)
+	if err != nil {
+		return utils.Error(c, 502, "Failed to fetch resources from Wings")
 	}
+
+	return utils.Success(c, resources)
+}
+
+func (ctrl *ServerController) PowerAction(c *fiber.Ctx) error {
+	user := c.Locals("user").(*models.User)
+	uid := c.Params("uuid")
+
+	server, err := ctrl.serverRepo.FindByUUID(uid)
+	if err != nil {
+		return utils.Error(c, 404, "Server not found")
+	}
+
+	if server.UserID != user.ID {
+		return utils.Error(c, 403, "Not authorized to access this server")
+	}
+
+	var req requests.PowerActionRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
-	}
-	if errors := utils.ValidateRequest(req); errors != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	if err := sc.svc.PowerAction(uuid, req.Action); err != nil {
-		return utils.BadRequest(c, err.Error())
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
 	}
 
-	return utils.Success(c, nil, "Power action sent")
+	if err := ctrl.serverSvc.PowerAction(server.ID, req.Action); err != nil {
+		return utils.Error(c, 502, "Failed to send power action: "+err.Error())
+	}
+
+	return utils.SuccessMessage(c, "Power action sent: "+req.Action, nil)
 }

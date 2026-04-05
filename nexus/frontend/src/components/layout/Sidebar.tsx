@@ -1,56 +1,67 @@
-import { NavLink } from 'react-router-dom';
-import { useLocation } from 'react-router-dom';
-import { useAuthStore } from '../../store/authStore';
-import './Sidebar.css';
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, Server, Network, Users, Package, LogOut } from 'lucide-react'
+import { useAuthStore } from '../../store/authStore'
+
+const navItems = [
+  { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/admin/servers', label: 'Servers', icon: Server },
+  { path: '/admin/nodes', label: 'Nodes', icon: Network },
+  { path: '/admin/users', label: 'Users', icon: Users },
+  { path: '/admin/eggs', label: 'Eggs', icon: Package },
+]
 
 export default function Sidebar() {
-  const { user, logout } = useAuthStore();
-  const location = useLocation();
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { user, logout } = useAuthStore()
 
-  const navItems = [
-    { to: '/admin/dashboard', label: 'Dashboard', icon: '📊' },
-    { to: '/admin/servers', label: 'Servers', icon: '🖥️' },
-    { to: '/admin/nodes', label: 'Nodes', icon: '🌐' },
-    { to: '/admin/users', label: 'Users', icon: '👥' },
-    { to: '/admin/eggs', label: 'Eggs', icon: '🥚' },
-  ];
+  const isActive = (path: string) => location.pathname.startsWith(path)
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="logo">NEXUS</div>
-      </div>
+    <div className="nx-sidebar">
+      <div className="nx-sidebar-logo">NEXUS</div>
 
-      <nav className="sidebar-nav">
+      <nav className="nx-sidebar-nav">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + '/');
+          const Icon = item.icon
+          const active = isActive(item.path)
           return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={`nav-item${isActive ? ' active' : ''}`}
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`nx-sidebar-item ${active ? 'nx-sidebar-item--active' : ''}`}
             >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-            </NavLink>
-          );
+              <Icon />
+              {item.label}
+            </Link>
+          )
         })}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="user-menu">
-          <div className="user-avatar">
-            {user?.username?.charAt(0).toUpperCase() || 'U'}
-          </div>
-          <div className="user-info">
-            <div className="user-name">{user?.username}</div>
-            <div className="user-role">{user?.role}</div>
-          </div>
-          <button className="logout-btn" onClick={logout} title="Logout">
-            →
-          </button>
-        </div>
+      <div className="nx-sidebar-footer">
+        {user && (
+          <>
+            <div className="nx-sidebar-user">
+              <div className="nx-sidebar-avatar">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="nx-sidebar-user-info">
+                <div className="nx-sidebar-user-name">{user.username}</div>
+                <div className="nx-sidebar-user-role">{user.root_admin ? 'Root Admin' : user.role}</div>
+              </div>
+            </div>
+            <button className="nx-logout-btn" onClick={handleLogout}>
+              <LogOut />
+              Logout
+            </button>
+          </>
+        )}
       </div>
-    </aside>
-  );
+    </div>
+  )
 }

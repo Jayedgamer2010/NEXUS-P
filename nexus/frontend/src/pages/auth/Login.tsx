@@ -1,76 +1,132 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../../store/authStore';
-import { authApi } from '../../api/auth';
-import './Auth.css';
+import { useState, useEffect, FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { authApi } from '../../api/auth'
+import { useAuthStore } from '../../store/authStore'
+import Button from '../../components/ui/Button'
+import Input from '../../components/ui/Input'
+import Alert from '../../components/ui/Alert'
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const navigate = useNavigate();
-  const login = useAuthStore((state) => state.login);
+  const { isAuthenticated } = useAuthStore()
+  const navigate = useNavigate()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  useEffect(() => {
+    if (isAuthenticated) navigate('/admin/dashboard', { replace: true })
+  }, [isAuthenticated, navigate])
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
 
     try {
-      const result = await authApi.login(email, password);
-      if (result.success) {
-        login(result.data.token, result.data.user);
-        navigate('/admin/dashboard');
-      } else {
-        setError(result.message || 'Login failed');
-      }
+      const res = await authApi.login(email, password)
+      const data = res.data.data
+      useAuthStore.getState().login(data.token, data.user)
+      navigate('/admin/dashboard')
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      setError(msg)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">NEXUS</div>
-        <p className="auth-tagline">Game Server Management</p>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: '#0a0a0f',
+      padding: 20,
+    }}>
+      <div style={{
+        width: 420,
+        maxWidth: '100%',
+        background: '#0d0d17',
+        border: '1px solid #1e1e30',
+        borderRadius: 12,
+        padding: 48,
+      }}>
+        <div style={{
+          textAlign: 'center',
+          marginBottom: 32,
+        }}>
+          <h1 style={{
+            fontSize: 36,
+            fontWeight: 700,
+            background: 'linear-gradient(135deg, #7c3aed, #3b82f6)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontFamily: 'Inter, sans-serif',
+            marginBottom: 8,
+          }}>
+            NEXUS
+          </h1>
+          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+            Game Server Management Panel
+          </p>
+        </div>
 
-        {error && <div className="auth-error">{error}</div>}
+        <div style={{ height: 1, background: '#1e1e30', marginBottom: 24 }} />
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <div className="form-group">
-            <label htmlFor="email">Email</label>
-            <input
-              type="email"
-              id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@nexus.local"
-              required
-            />
+        <form onSubmit={handleSubmit}>
+          <Input
+            label="Email Address"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            placeholder="admin@example.com"
+          />
+
+          <Input
+            label="Password"
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+            placeholder="Enter your password"
+          />
+
+          <div style={{ display: 'flex', gap: 6, marginTop: -8, marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showPassword}
+                onChange={(e) => setShowPassword(e.target.checked)}
+                style={{ marginRight: 4 }}
+              />
+              Show password
+            </label>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
+          {error && (
+            <div style={{ marginBottom: 16 }}>
+              <Alert type="error" message={error} dismissible={false} />
+            </div>
+          )}
 
-          <button type="submit" className="auth-submit" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            loading={loading}
+            style={{ width: '100%', height: 48 }}
+          >
+            Sign In
+          </Button>
         </form>
       </div>
     </div>
-  );
+  )
 }

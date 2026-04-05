@@ -1,254 +1,203 @@
-import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import StatCard from '../../components/ui/StatCard';
-import ConsoleInput from '../../components/console/ConsoleInput';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { useConsole } from '../../hooks/useConsole';
-import { adminApi } from '../../api/admin';
-import { useServerStats } from '../../hooks/useServerStats';
-import type { Server, PowerAction } from '../../types';
-import { POWER_ACTIONS } from '../../types';
-import './ServerDetail.css';
+import { useState, useCallback, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import { Terminal } from '@xterm/xterm'
+import { useApi } from '../../hooks/useApi'
+import { useServerStats } from '../../hooks/useServerStats'
+import { useConsole } from '../../hooks/useConsole'
+import { serversApi } from '../../api/admin/servers'
+import type { Server } from '../../types'
+import Button from '../../components/ui/Button'
+import StatusBadge from '../../components/ui/StatusBadge'
+import Console from '../../components/console/Console'
+import ConsoleInput from '../../components/console/ConsoleInput'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { formatMB, formatCPU, formatBytes, formatUptime } from '../../utils/format'
+import { POWER_ACTIONS } from '../../utils/constants'
+import Spinner from '../../components/ui/Spinner'
 
 export default function ServerDetail() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>()
+  const serverId = Number(id)
+  const [loadingPower, setLoadingPower] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ action: string; label: string } | null>(null)
+  const [terminal, setTerminal] = useState<Terminal | null>(null)
+  const [key, setKey] = useState(0)
 
-  const [server, setServer] = useState<Server | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [sendingAction, setSendingAction] = useState<string | null>(null);
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const { data: server, loading, refetch } = useApi<Server>(
+    () => serversApi.getOne(serverId),
+    [serverId]
+  )
 
-  const { stats, loading: statsLoading } = useServerStats({
-    serverUUID: id || '',
-  });
+  const { stats, error: statsError } = useServerStats(server?.uuid ?? '', 3000)
+  const { sendCommand } = useConsole(terminal, server?.uuid ?? '')
 
-  const { connectionStatus, send: wsSend, disconnect } = useConsole({
-    serverUUID: id || '',
-    onMessage: (message) => {
-      if (xtermRef.current) {
-        xtermRef.current.writeln(message);
-      }
-    },
-  });
+  const handleTerminalReady = useCallback((t: Terminal) => {
+    setTerminal(t)
+  }, [])
 
-  useEffect(() => {
-    loadServer();
-  }, [id]);
-
-  useEffect(() => {
-    if (!terminalRef.current) return;
-
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'JetBrains Mono, Fira Code, monospace',
-      theme: {
-        background: '#000000',
-        foreground: '#10b981',
-        cursor: '#10b981',
-      },
-      scrollback: 1000,
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    fitAddon.fit();
-
-    xtermRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    term.writeln(`\x1b[36m[NEXUS]\x1b[0m Console ready`);
-
-    return () => {
-      term.dispose();
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit();
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      disconnect();
-    };
-  }, [disconnect]);
-
-  const loadServer = async () => {
-    if (!id) return;
-    setLoading(true);
+  const handlePower = async (action: string) => {
+    if (!server) return
+    setLoadingPower(action)
     try {
-      const response = await adminApi.getServers(1, 100);
-      const found = response.data.find(s => s.uuid === id);
-      if (found) {
-        setServer(found);
-      } else {
-        navigate('/admin/servers');
-      }
-    } catch (error) {
-      console.error('Failed to load server:', error);
-      navigate('/admin/servers');
-    } finally {
-      setLoading(false);
+      await serversApi.power(server.id, action)
+      setTimeout(refetch, 2000)
+    } catch { /* ignore */ } finally {
+      setLoadingPower(null)
     }
-  };
+  }
 
-  const handlePowerAction = async (action: PowerAction) => {
-    if (!server) return;
-    setSendingAction(action);
-    try {
-      await adminApi.powerServer(server.uuid, action);
-      setTimeout(loadServer, 2000);
-    } catch (error) {
-      console.error('Failed to send power action:', error);
-      alert('Failed to send power action');
-    } finally {
-      setSendingAction(null);
+  const handleConfirmPower = (action: string, label: string) => {
+    if (action === 'stop' || action === 'kill') {
+      setConfirmAction({ action, label })
+    } else {
+      handlePower(action)
     }
-  };
+  }
 
-  const handleConsoleSend = (command: string) => {
-    wsSend(command);
-    if (xtermRef.current) {
-      xtermRef.current.writeln(`$ ${command}`);
-    }
-  };
+  const handlePowerConfirm = () => {
+    if (confirmAction) handlePower(confirmAction.action)
+  }
 
-  const formatBytes = (bytes: number): string => {
-    const gb = bytes / (1024 * 1024 * 1024);
-    return gb.toFixed(2) + ' GB';
-  };
+  const handleRefreshConsole = () => {
+    setKey((k) => k + 1)
+  }
 
-  if (loading) return <div className="loading">Loading server...</div>;
-  if (!server) return null;
-
-  const cpuPercent = stats ? (stats.cpu_absolute * 100).toFixed(1) : '0.0';
-  const ramUsed = stats ? formatBytes(stats.memory_bytes) : '0 GB';
-  const ramTotal = stats ? formatBytes(stats.memory_limit_bytes) : formatBytes(server.memory * 1024 * 1024);
-  const diskUsed = stats ? formatBytes(stats.disk_bytes) : '0 GB';
-  const diskTotal = stats ? formatBytes(stats.disk_limit_bytes) : formatBytes(server.disk * 1024 * 1024);
-
-  const getStatusColor = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return '#10b981';
-      case 'connecting':
-        return '#f59e0b';
-      default:
-        return '#ef4444';
-    }
-  };
-
-  const getStatusText = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return 'Connected';
-      case 'connecting':
-        return 'Connecting...';
-      default:
-        return 'Disconnected';
-    }
-  };
+  if (loading || !server) {
+    return <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="lg" /></div>
+  }
 
   return (
-    <div className="server-detail">
-      <div className="server-header">
-        <div className="server-info">
-          <h1>{server.name}</h1>
-          <div className="server-meta">
-            <span className="uuid">{server.uuid.substring(0, 12)}...</span>
-            <span className={`status-badge status-${server.status}`}>{server.status}</span>
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700 }}>{server.name}</h2>
+            <StatusBadge status={server.suspended ? 'suspended' : server.status} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="nx-mono" style={{ color: '#4b5563' }}>{server.uuid_short}</span>
+            {server.node && <span className="nx-tag">{server.node.name}</span>}
+            {server.egg && <span className="nx-tag">{server.egg.name}</span>}
+            {server.user && <span className="nx-tag">Owner: {server.user.username}</span>}
           </div>
         </div>
-        <div className="server-actions">
-          <button
-            className="action-btn start"
-            onClick={() => handlePowerAction('start' as PowerAction)}
-            disabled={sendingAction !== null || server.status === 'running'}
-          >
-            ▶ Start
-          </button>
-          <button
-            className="action-btn restart"
-            onClick={() => handlePowerAction('restart' as PowerAction)}
-            disabled={sendingAction !== null || server.status !== 'running'}
-          >
-            ↻ Restart
-          </button>
-          <button
-            className="action-btn stop"
-            onClick={() => handlePowerAction('stop' as PowerAction)}
-            disabled={sendingAction !== null || server.status !== 'running'}
-          >
-            ◼ Stop
-          </button>
-          <button
-            className="action-btn kill"
-            onClick={() => handlePowerAction('kill' as PowerAction)}
-            disabled={sendingAction !== null}
-          >
-            ✕ Kill
-          </button>
+      </div>
+
+      {/* Power Actions */}
+      <div style={{ marginBottom: 24 }}>
+        <div className="nx-section-title">Power</div>
+        <div className="power-btns">
+          {POWER_ACTIONS.map(({ action, label, color }) => (
+            <Button
+              key={action}
+              variant={action === 'start' ? 'primary' : action === 'restart' ? 'warning' : 'danger'}
+              size="sm"
+              loading={loadingPower === action}
+              onClick={() => handleConfirmPower(action, label)}
+            >
+              {label}
+            </Button>
+          ))}
+          <Button variant="ghost" size="sm" onClick={handleRefreshConsole}>
+            Refresh Console
+          </Button>
         </div>
       </div>
 
-      <div className="stats-section">
-        <h2>Live Statistics</h2>
-        <div className="stats-grid">
-          <StatCard
-            title="CPU Usage"
-            value={`${cpuPercent}%`}
-            icon="⚡"
-            accentColor="#7c3aed"
-            subtitle={statsLoading ? 'Fetching...' : 'Live'}
-          />
-          <StatCard
-            title="RAM Usage"
-            value={ramUsed}
-            subtitle={`of ${ramTotal}`}
-            icon="💾"
-            accentColor="#3b82f6"
-          />
-          <StatCard
-            title="Disk Usage"
-            value={diskUsed}
-            subtitle={`of ${diskTotal}`}
-            icon="💿"
-            accentColor="#10b981"
-          />
+      {/* Stats */}
+      <div className="nx-grid-4" style={{ marginBottom: 24 }}>
+        <div className="nx-stat-card">
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>CPU</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>
+            {stats ? formatCPU(stats.cpu_absolute) : '--'}
+          </div>
+        </div>
+        <div className="nx-stat-card">
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>RAM</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>
+            {stats ? formatBytes(stats.memory_bytes) : '--'}/ {formatMB(server.memory)}
+          </div>
+        </div>
+        <div className="nx-stat-card">
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Disk</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>
+            {stats ? formatBytes(stats.disk_bytes) : '--'}/ {formatMB(server.disk)}
+          </div>
+        </div>
+        <div className="nx-stat-card">
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Uptime</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>
+            {stats && stats.uptime > 0 ? formatUptime(stats.uptime) : 'Offline'}
+          </div>
         </div>
       </div>
 
-      <div className="console-section">
-        <h2>Console</h2>
-        <div className="console-wrapper">
-          <div className="console-container">
-            <div className="console-header">
-              <div className="console-status">
-                <span
-                  className="status-indicator"
-                  style={{ backgroundColor: getStatusColor() }}
-                />
-                {getStatusText()}
-              </div>
-              <div className="console-title">Server Console</div>
+      {/* Server Info */}
+      <div className="nx-grid-2" style={{ marginBottom: 24 }}>
+        <div className="card">
+          <div className="nx-section-title">Configuration</div>
+          <div style={{ fontSize: 13, lineHeight: 2 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#6b7280' }}>Memory</span>
+              <span>{formatMB(server.memory)}</span>
             </div>
-            <div ref={terminalRef} className="console-terminal" />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#6b7280' }}>Disk</span>
+              <span>{formatMB(server.disk)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#6b7280' }}>CPU</span>
+              <span>{server.cpu}%</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#6b7280' }}>Image</span>
+              <span className="nx-mono" style={{ color: '#9ca3af' }}>{server.image || server.egg?.docker_image}</span>
+            </div>
           </div>
-          <ConsoleInput onSend={handleConsoleSend} />
+        </div>
+        <div className="card">
+          <div className="nx-section-title">Connection</div>
+          {server.allocation ? (
+            <div style={{ fontSize: 13, lineHeight: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#6b7280' }}>Address</span>
+                <span className="nx-mono">{server.allocation.ip}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#6b7280' }}>Port</span>
+                <span className="nx-mono">{server.allocation.port}</span>
+              </div>
+              {server.allocation.ip_alias && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#6b7280' }}>Alias</span>
+                  <span className="nx-mono">{server.allocation.ip_alias}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <span style={{ color: '#6b7280', fontSize: 13 }}>No allocation assigned</span>
+          )}
         </div>
       </div>
+
+      {/* Console */}
+      <div style={{ marginBottom: 24 }}>
+        <div className="nx-section-title">Console</div>
+        <div key={key}>
+          <Console serverUUID={server.uuid} onTerminalReady={handleTerminalReady} />
+          <ConsoleInput onSend={sendCommand} />
+        </div>
+      </div>
+
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={handlePowerConfirm}
+        title="Confirm Power Action"
+        message={`Are you sure you want to ${confirmAction?.label?.toLowerCase()} this server?`}
+        confirmText={confirmAction?.label ?? 'Confirm'}
+      />
     </div>
-  );
+  )
 }

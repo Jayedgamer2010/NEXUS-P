@@ -5,203 +5,245 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"nexus/backend/config"
-	"nexus/backend/controllers"
-	"nexus/backend/controllers/admin"
-	"nexus/backend/controllers/client"
 	"nexus/backend/database"
 	"nexus/backend/middleware"
 	"nexus/backend/models"
 	"nexus/backend/repositories"
-	"nexus/backend/routes"
 	"nexus/backend/services"
+	"nexus/backend/utils"
 	"nexus/backend/wings"
 
-	"github.com/gofiber/contrib/websocket"
+	adminCtrl "nexus/backend/controllers/admin"
+	clientCtrl "nexus/backend/controllers/client"
+	"nexus/backend/controllers"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 func main() {
+	// 1. Load config
 	cfg := config.Load()
 
+	// 2. Connect database
 	if err := database.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer database.Close()
+	log.Println("Database connected successfully")
 
-	if err := autoMigrate(); err != nil {
-		log.Printf("Warning: migration issues: %v", err)
-	}
+	// 3. Initialize repositories
+	userRepo := repositories.NewUserRepository(database.DB)
+	serverRepo := repositories.NewServerRepository(database.DB)
+	nodeRepo := repositories.NewNodeRepository(database.DB)
+	eggRepo := repositories.NewEggRepository(database.DB)
+	allocRepo := repositories.NewAllocationRepository(database.DB)
 
-	seedAdminFromEnv(database.DB)
+	// 4. Initialize wings client
+	wingsClient := wings.NewWingsClient()
 
-	db := database.DB
-	wingsSvc := services.NewWingsService()
+	// 5. Initialize services
+	authService := services.NewAuthService(userRepo, cfg)
+	serverSvc := services.NewServerService(serverRepo, nodeRepo, eggRepo, userRepo, allocRepo, wingsClient)
+	nodeSvc := services.NewNodeService(nodeRepo, serverRepo, wingsClient)
+	userSvc := services.NewUserService(userRepo, serverRepo)
 
-	userRepo := repositories.NewUserRepository(db)
-	serverRepo := repositories.NewServerRepository(db)
-	nodeRepo := repositories.NewNodeRepository(db)
-	eggRepo := repositories.NewEggRepository(db)
-	allocRepo := repositories.NewAllocationRepository(db)
+	// 6. Initialize controllers
+	authController := controllers.NewAuthController(authService)
+	statsController := adminCtrl.NewStatsController(userRepo, serverRepo, nodeRepo)
+	userController := adminCtrl.NewUserController(userRepo, userSvc)
+	serverController := adminCtrl.NewServerController(serverRepo, serverSvc)
+	nodeController := adminCtrl.NewNodeController(nodeRepo, serverRepo, allocRepo, nodeSvc)
+	eggController := adminCtrl.NewEggController(eggRepo, serverRepo)
+	clientServerController := clientCtrl.NewClientServerController(serverRepo, serverSvc, nodeRepo)
+	clientAccountController := clientCtrl.NewAccountController()
 
-	userSvc := services.NewUserService(userRepo, cfg)
-	serverSvc := services.NewServerService(serverRepo, nodeRepo, eggRepo, userRepo, allocRepo, wingsSvc)
-	nodeSvc := services.NewNodeService(nodeRepo, allocRepo, wingsSvc)
-	eggSvc := services.NewEggService(eggRepo, serverRepo, db)
+	// 7. Seed admin user
+	seedAdmin(userRepo, cfg)
 
-	// Seed default eggs
-	if err := eggSvc.SeedDefaults(); err != nil {
-		log.Printf("Warning: egg seeding issues: %v", err)
-	}
+	// 8. Seed default eggs
+	seedEggs(eggRepo)
 
-	authCtl := controllers.NewAuthController(userSvc)
-	userCtl := admin.NewUserController(userSvc, allocRepo)
-	serverCtl := admin.NewServerController(serverSvc)
-	nodeCtl := admin.NewNodeController(nodeSvc)
-	eggCtl := admin.NewEggController(eggSvc)
-	statsCtl := admin.NewStatsController(userRepo, serverRepo, nodeRepo, wingsSvc)
-	clientSrvCtl := client.NewServerController(serverSvc, wingsSvc)
-	accCtl := client.NewAccountController(userRepo)
-
+	// 9. Create Fiber app
 	app := fiber.New(fiber.Config{
-		AppName:               cfg.AppName,
-		ErrorHandler:          errorHandler,
-		DisableStartupMessage: true,
-		ReadTimeout:           30 * 1e9,
-		WriteTimeout:          30 * 1e9,
-		IdleTimeout:           120 * 1e9,
+		AppName:   cfg.AppName,
+		BodyLimit: 10 * 1024 * 1024, // 10MB
 	})
 
-	// CORS - must be first
+	// CORS first
 	app.Use(cors.New(cors.Config{
-		AllowOriginsFunc:     func(origin string) bool { return true },
-		AllowMethods:         "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
-		AllowHeaders:         "Origin,Content-Type,Accept,Authorization,X-Requested-With",
-		AllowCredentials:     false,
-		MaxAge:               300,
+		AllowOriginsFunc: func(origin string) bool { return true },
+		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Requested-With",
+		AllowCredentials: false,
+		MaxAge:           300,
 	}))
+
+	// Preflight
 	app.Options("/*", func(c *fiber.Ctx) error { return c.SendStatus(204) })
 
-	app.Use(recover.New())
+	// Health (no auth)
+	app.Get("/health", healthHandler)
 
-	authCfg := &middleware.AuthConfig{JWTSecret: cfg.JWTSecret}
-	routes.Setup(app, authCfg, authCtl, userCtl, serverCtl, nodeCtl, eggCtl, statsCtl, clientSrvCtl, accCtl)
+	// Auth (no auth)
+	app.Post("/api/auth/register", authController.Register)
+	app.Post("/api/auth/login", authController.Login)
 
-	// WebSocket console
-	app.Get("/ws/console", middleware.Auth(authCfg), websocket.New(func(c *websocket.Conn) {
-		serverUUID := c.Query("server_uuid")
-		if serverUUID == "" {
-			c.WriteJSON(fiber.Map{"error": "server_uuid query parameter required"})
-			c.Close()
-			return
-		}
+	// Auth middleware
+	authMiddleware := middleware.AuthMiddleware(cfg)
 
-		user, ok := c.Locals("user").(models.User)
-		if !ok {
-			c.WriteJSON(fiber.Map{"error": "Unauthorized"})
-			c.Close()
-			return
-		}
+	// Protected routes
+	api := app.Group("/api", authMiddleware)
+	api.Get("/auth/me", authController.GetMe)
 
-		var server models.Server
-		if err := db.Where("uuid = ? AND user_id = ?", serverUUID, user.ID).
-			Preload("Node").First(&server).Error; err != nil {
-			c.WriteJSON(fiber.Map{"error": "Server not found or access denied"})
-			c.Close()
-			return
-		}
+	// Client routes
+	client := api.Group("/client")
+	client.Get("/account", clientAccountController.Get)
+	client.Patch("/account", clientAccountController.Update)
+	client.Get("/servers", clientServerController.GetAll)
+	client.Get("/servers/:uuid", clientServerController.GetOne)
+	client.Get("/servers/:uuid/resources", clientServerController.GetResources)
+	client.Post("/servers/:uuid/power", clientServerController.PowerAction)
 
-		conn := wings.NewConsoleConnection(&server.Node, server.UUID)
-		if err := conn.ConnectConsole(c); err != nil {
-			log.Printf("Console connection error: %v", err)
-		}
-	}))
+	// Admin middleware
+	adminMiddleware := middleware.AdminMiddleware()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// Admin routes
+	admin := api.Group("/admin", adminMiddleware)
+	admin.Get("/stats", statsController.GetStats)
 
+	admin.Get("/users", userController.GetAll)
+	admin.Post("/users", userController.Create)
+	admin.Get("/users/:id", userController.GetOne)
+	admin.Patch("/users/:id", userController.Update)
+	admin.Delete("/users/:id", userController.Delete)
+
+	admin.Get("/servers", serverController.GetAll)
+	admin.Post("/servers", serverController.Create)
+	admin.Get("/servers/:id", serverController.GetOne)
+	admin.Patch("/servers/:id", serverController.Update)
+	admin.Delete("/servers/:id", serverController.Delete)
+	admin.Post("/servers/:id/power", serverController.PowerAction)
+	admin.Post("/servers/:id/suspend", serverController.Suspend)
+	admin.Post("/servers/:id/unsuspend", serverController.Unsuspend)
+
+	admin.Get("/nodes", nodeController.GetAll)
+	admin.Post("/nodes", nodeController.Create)
+	admin.Get("/nodes/:id", nodeController.GetOne)
+	admin.Patch("/nodes/:id", nodeController.Update)
+	admin.Delete("/nodes/:id", nodeController.Delete)
+	admin.Get("/nodes/:id/allocations", nodeController.GetAllocations)
+	admin.Post("/nodes/:id/allocations", nodeController.AddAllocation)
+	admin.Delete("/allocations/:id", nodeController.DeleteAllocation)
+
+	admin.Get("/eggs", eggController.GetAll)
+	admin.Post("/eggs", eggController.Create)
+	admin.Get("/eggs/:id", eggController.GetOne)
+	admin.Patch("/eggs/:id", eggController.Update)
+	admin.Delete("/eggs/:id", eggController.Delete)
+
+	// WebSocket console - handled by ws_handler.go
+	registerWSConsole(app)
+
+	// Graceful shutdown
 	go func() {
-		log.Printf("%s starting on port %s", cfg.AppName, cfg.AppPort)
-		if err := app.Listen(":" + cfg.AppPort); err != nil {
-			log.Fatalf("Server failed to start: %v", err)
-		}
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		log.Println("Shutting down server...")
 	}()
 
-	<-quit
-	log.Println("Shutting down server...")
-	if err := app.Shutdown(); err != nil {
-		log.Fatalf("Error during shutdown: %v", err)
+	// Start server
+	log.Printf("NEXUS panel starting on port %s", cfg.AppPort)
+	if err := app.Listen(":" + cfg.AppPort); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
-	log.Println("Server stopped")
 }
 
-func autoMigrate() error {
-	db := database.DB
-	db.Exec("SET session_replication_role = replica")
-	defer db.Exec("SET session_replication_role = DEFAULT")
+var startTime = time.Now()
 
-	return db.AutoMigrate(
-		&models.User{},
-		&models.Node{},
-		&models.Egg{},
-		&models.Allocation{},
-		&models.Server{},
-		&models.Ticket{},
-		&models.CoinTransaction{},
-	)
-}
-
-func errorHandler(c *fiber.Ctx, err error) error {
-	code := fiber.StatusInternalServerError
-	message := "Internal Server Error"
-
-	if e, ok := err.(*fiber.Error); ok {
-		code = e.Code
-		message = e.Message
-	}
-
-	return c.Status(code).JSON(fiber.Map{
-		"success": false,
-		"message": message,
-		"data":    nil,
+func healthHandler(c *fiber.Ctx) error {
+	return utils.Success(c, fiber.Map{
+		"status": "ok",
+		"uptime": time.Since(startTime).String(),
 	})
 }
 
-func seedAdminFromEnv(db *gorm.DB) {
-	email := os.Getenv("ADMIN_EMAIL")
-	password := os.Getenv("ADMIN_PASSWORD")
-	username := os.Getenv("ADMIN_USERNAME")
-	if email == "" || password == "" {
-		log.Println("Warning: ADMIN_EMAIL or ADMIN_PASSWORD not set, skipping admin seed")
+func seedAdmin(userRepo *repositories.UserRepository, cfg *config.Config) {
+	if cfg.AdminEmail == "" || cfg.AdminPassword == "" {
 		return
 	}
-	var user models.User
-	if db.Where("email = ?", email).First(&user).Error == nil {
-		return // already exists
+
+	if _, err := userRepo.FindByEmail(cfg.AdminEmail); err == nil {
+		log.Println("Admin user already exists, skipping seed")
+		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), 12)
-	if err != nil {
+
+	username := cfg.AdminUsername
+	if username == "" {
+		username = "admin"
+	}
+
+	adminUser := &models.User{
+		Username:  username,
+		Email:     cfg.AdminEmail,
+		Role:      "admin",
+		RootAdmin: true,
+	}
+
+	if err := adminUser.HashPassword(cfg.AdminPassword); err != nil {
 		log.Printf("Failed to hash admin password: %v", err)
 		return
 	}
-	admin := models.User{
-		UUID:      uuid.New().String(),
-		Username:  username,
-		Email:     email,
-		Password:  string(hashed),
-		Role:      "admin",
-		RootAdmin: true,
-		Coins:     0,
-	}
-	if err := db.Create(&admin).Error; err != nil {
-		log.Printf("Failed to seed admin: %v", err)
+
+	if err := userRepo.Create(adminUser); err != nil {
+		log.Printf("Failed to seed admin user: %v", err)
 		return
 	}
-	log.Println("Admin account created from environment variables")
+
+	log.Printf("Admin user seeded: %s", adminUser.Email)
+}
+
+func seedEggs(eggRepo *repositories.EggRepository) {
+	eggs, err := eggRepo.FindAll()
+	if err == nil && len(eggs) > 0 {
+		log.Println("Eggs already exist, skipping seed")
+		return
+	}
+
+	defaultEggs := []models.Egg{
+		{
+			Author:      "NEXUS",
+			Name:        "Vanilla Minecraft",
+			Description: "Standard Minecraft server with vanilla gameplay",
+			DockerImage: "ghcr.io/pterodactyl/yolks:java_17",
+			Startup:     "java -Xms128M -XX:MaxRAMPercentage=95.0 -jar {{SERVER_JARFILE}}",
+			ConfigStop:  "stop",
+		},
+		{
+			Author:      "NEXUS",
+			Name:        "Paper MC",
+			Description: "Paper Minecraft server - high performance fork",
+			DockerImage: "ghcr.io/pterodactyl/yolks:java_17",
+			Startup:     "java -Xms128M -XX:MaxRAMPercentage=95.0 -jar {{SERVER_JARFILE}}",
+			ConfigStop:  "stop",
+		},
+		{
+			Author:      "NEXUS",
+			Name:        "BungeeCord",
+			Description: "BungeeCord proxy for server networking",
+			DockerImage: "ghcr.io/pterodactyl/yolks:java_17",
+			Startup:     "java -Xms128M -XX:MaxRAMPercentage=95.0 -jar {{SERVER_JARFILE}}",
+			ConfigStop:  "end",
+		},
+	}
+
+	for _, egg := range defaultEggs {
+		if err := eggRepo.Create(&egg); err != nil {
+			log.Printf("Failed to seed egg %s: %v", egg.Name, err)
+		} else {
+			log.Printf("Egg seeded: %s", egg.Name)
+		}
+	}
 }

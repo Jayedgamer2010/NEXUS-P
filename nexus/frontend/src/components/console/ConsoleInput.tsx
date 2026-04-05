@@ -1,46 +1,28 @@
-import { useState, KeyboardEvent } from 'react';
-import './ConsoleInput.css';
+import { useState } from 'react'
 
 interface ConsoleInputProps {
-  onSend: (command: string) => void;
-  disabled?: boolean;
-  placeholder?: string;
+  onSend: (command: string) => void
 }
 
-export default function ConsoleInput({ onSend, disabled = false, placeholder = 'Enter command...' }: ConsoleInputProps) {
-  const [input, setInput] = useState('');
+export default function ConsoleInput({ onSend }: ConsoleInputProps) {
+  const [value, setValue] = useState('')
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && input.trim() && !disabled) {
-      onSend(input.trim());
-      setInput('');
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (value.trim()) {
+      onSend(value)
+      setValue('')
     }
-  };
+  }
 
   return (
-    <div className="console-input">
-      <span className="prompt-symbol">❯</span>
+    <form className="console-input-bar" onSubmit={handleSubmit}>
       <input
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        className="console-input-field"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Enter command..."
       />
-      <button
-        className="send-btn"
-        onClick={() => {
-          if (input.trim() && !disabled) {
-            onSend(input.trim());
-            setInput('');
-          }
-        }}
-        disabled={disabled || !input.trim()}
-      >
-        Send
-      </button>
-    </div>
-  );
+      <button type="submit">Send</button>
+    </form>
+  )
 }

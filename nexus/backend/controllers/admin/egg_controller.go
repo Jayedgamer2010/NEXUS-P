@@ -3,7 +3,9 @@ package admin
 import (
 	"strconv"
 
-	"nexus/backend/services"
+	"nexus/backend/models"
+	"nexus/backend/repositories"
+	"nexus/backend/requests"
 	"nexus/backend/transformers"
 	"nexus/backend/utils"
 
@@ -11,105 +13,132 @@ import (
 )
 
 type EggController struct {
-	svc *services.EggService
+	eggRepo    *repositories.EggRepository
+	serverRepo *repositories.ServerRepository
 }
 
-func NewEggController(svc *services.EggService) *EggController {
-	return &EggController{svc: svc}
+func NewEggController(eggRepo *repositories.EggRepository, serverRepo *repositories.ServerRepository) *EggController {
+	return &EggController{eggRepo: eggRepo, serverRepo: serverRepo}
 }
 
-func (ec *EggController) GetAll(c *fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "20"))
-
-	eggs, total, err := ec.svc.All(page, limit)
+func (ctrl *EggController) GetAll(c *fiber.Ctx) error {
+	eggs, err := ctrl.eggRepo.FindAll()
 	if err != nil {
-		return utils.InternalError(c, "Failed to fetch eggs")
+		return utils.Error(c, 500, "Failed to fetch eggs")
 	}
 
-	return utils.Paginated(c, transformers.TransformEggs(eggs), total, page, limit)
+	items := make([]transformers.EggItem, 0, len(eggs))
+	for _, e := range eggs {
+		items = append(items, transformers.TransformEgg(e))
+	}
+
+	return utils.Success(c, items)
 }
 
-func (ec *EggController) GetByID(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid egg ID")
-	}
-
-	egg, err := ec.svc.FindByID(uint(id))
-	if err != nil || egg == nil {
-		return utils.Error(c, fiber.StatusNotFound, "Egg not found")
-	}
-
-	return utils.Success(c, transformers.TransformEgg(*egg), "Egg retrieved")
-}
-
-func (ec *EggController) Create(c *fiber.Ctx) error {
-	var req struct {
-		Name        string `json:"name" validate:"required"`
-		Description string `json:"description"`
-		DockerImage string `json:"docker_image" validate:"required"`
-		Startup     string `json:"startup" validate:"required"`
-		Author      string `json:"author"`
-	}
+func (ctrl *EggController) Create(c *fiber.Ctx) error {
+	var req requests.CreateEggRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	if req.Name == "" || req.DockerImage == "" || req.Startup == "" {
-		return utils.BadRequest(c, "name, docker_image, and startup are required")
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
 	}
 
-	egg, err := ec.svc.Create(req.Name, req.Description, req.DockerImage, req.Startup, req.Author)
+	egg := &models.Egg{
+		Author:      req.Author,
+		Name:        req.Name,
+		Description: req.Description,
+		DockerImage: req.DockerImage,
+		Startup:     req.Startup,
+		ConfigStop:  req.ConfigStop,
+	}
+
+	if err := ctrl.eggRepo.Create(egg); err != nil {
+		return utils.Error(c, 500, "Failed to create egg")
+	}
+
+	return utils.Success(c, transformers.TransformEggDetail(*egg))
+}
+
+func (ctrl *EggController) GetOne(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
 	if err != nil {
-		return utils.InternalError(c, "Failed to create egg")
+		return utils.Error(c, 400, "Invalid egg ID")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(transformers.TransformEgg(*egg)))
+	egg, err := ctrl.eggRepo.FindByID(uint(id))
+	if err != nil {
+		return utils.Error(c, 404, "Egg not found")
+	}
+
+	return utils.Success(c, transformers.TransformEggDetail(*egg))
 }
 
-func (ec *EggController) Update(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid egg ID")
+func (ctrl *EggController) Update(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil {
+		return utils.Error(c, 400, "Invalid egg ID")
 	}
 
-	egg, err := ec.svc.FindByID(uint(id))
-	if err != nil || egg == nil {
-		return utils.Error(c, fiber.StatusNotFound, "Egg not found")
+	egg, err := ctrl.eggRepo.FindByID(uint(id))
+	if err != nil {
+		return utils.Error(c, 404, "Egg not found")
 	}
 
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		DockerImage string `json:"docker_image"`
-		Startup     string `json:"startup"`
-	}
+	var req requests.UpdateEggRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	if err := ec.svc.Update(egg, req.Name, req.Description, req.DockerImage, req.Startup); err != nil {
-		return utils.InternalError(c, "Failed to update egg")
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
 	}
 
-	return utils.Success(c, transformers.TransformEgg(*egg), "Egg updated")
+	if req.Name != "" {
+		egg.Name = req.Name
+	}
+	if req.Author != "" {
+		egg.Author = req.Author
+	}
+	if req.Description != "" {
+		egg.Description = req.Description
+	}
+	if req.DockerImage != "" {
+		egg.DockerImage = req.DockerImage
+	}
+	if req.Startup != "" {
+		egg.Startup = req.Startup
+	}
+	if req.ConfigStop != "" {
+		egg.ConfigStop = req.ConfigStop
+	}
+
+	if err := ctrl.eggRepo.Update(egg); err != nil {
+		return utils.Error(c, 500, "Failed to update egg")
+	}
+
+	return utils.Success(c, transformers.TransformEggDetail(*egg))
 }
 
-func (ec *EggController) Delete(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid egg ID")
+func (ctrl *EggController) Delete(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil {
+		return utils.Error(c, 400, "Invalid egg ID")
 	}
 
-	egg, err := ec.svc.FindByID(uint(id))
-	if err != nil || egg == nil {
-		return utils.Error(c, fiber.StatusNotFound, "Egg not found")
+	count := ctrl.eggRepo.CountByEggID(uint(id))
+	if count > 0 {
+		return utils.Error(c, 422, "Cannot delete egg with active servers")
 	}
 
-	if err := ec.svc.Delete(egg); err != nil {
-		return utils.BadRequest(c, err.Error())
+	if err := ctrl.eggRepo.Delete(uint(id)); err != nil {
+		return utils.Error(c, 500, "Failed to delete egg")
 	}
 
-	return utils.Success(c, nil, "Egg deleted")
+	return utils.SuccessMessage(c, "Egg deleted successfully", nil)
+}
+
+func (ctrl *EggController) DeleteWithServers(c *fiber.Ctx) error {
+	return utils.Error(c, 422, "Cannot delete egg with active servers")
 }

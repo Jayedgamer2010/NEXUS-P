@@ -2,57 +2,47 @@ package admin
 
 import (
 	"nexus/backend/repositories"
-	"nexus/backend/services"
+	"nexus/backend/transformers"
 	"nexus/backend/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type StatsController struct {
-	userRepo     *repositories.UserRepository
-	serverRepo   *repositories.ServerRepository
-	nodeRepo     *repositories.NodeRepository
-	wingsService *services.WingsService
+	userRepo   *repositories.UserRepository
+	serverRepo *repositories.ServerRepository
+	nodeRepo   *repositories.NodeRepository
 }
 
 func NewStatsController(
 	userRepo *repositories.UserRepository,
 	serverRepo *repositories.ServerRepository,
 	nodeRepo *repositories.NodeRepository,
-	wingsSvc *services.WingsService,
 ) *StatsController {
 	return &StatsController{
-		userRepo:     userRepo,
-		serverRepo:   serverRepo,
-		nodeRepo:     nodeRepo,
-		wingsService: wingsSvc,
+		userRepo:   userRepo,
+		serverRepo: serverRepo,
+		nodeRepo:   nodeRepo,
 	}
 }
 
-func (sc *StatsController) GetStats(c *fiber.Ctx) error {
-	userCount, _ := sc.userRepo.Count()
-	serverCount, _ := sc.serverRepo.Count()
-	nodeCount, _ := sc.nodeRepo.Count()
-	runningCount, _ := sc.serverRepo.CountRunning()
+func (ctrl *StatsController) GetStats(c *fiber.Ctx) error {
+	recentServers, _ := ctrl.serverRepo.FindRecent(5)
+	recentUsers, _, _ := ctrl.userRepo.FindAll(1, 5, "")
 
-	nodes, _, _ := sc.nodeRepo.All(1, 100)
-	nodeStatuses := make([]map[string]interface{}, 0)
-	for _, node := range nodes {
-		online := node.IsOnline()
-		nodeStatuses = append(nodeStatuses, map[string]interface{}{
-			"id":     node.ID,
-			"name":   node.Name,
-			"online": online,
-		})
+	recentServerItems := make([]transformers.ServerItem, 0, len(recentServers))
+	for _, s := range recentServers {
+		recentServerItems = append(recentServerItems, transformers.TransformServer(s))
 	}
 
-	stats := map[string]interface{}{
-		"users":           userCount,
-		"nodes":           nodeCount,
-		"servers":         serverCount,
-		"running_servers": runningCount,
-		"node_statuses":   nodeStatuses,
-	}
+	userItems := transformers.TransformUsers(recentUsers)
 
-	return utils.Success(c, stats, "Stats retrieved")
+	return utils.Success(c, fiber.Map{
+		"users":           ctrl.userRepo.CountAll(),
+		"nodes":           ctrl.nodeRepo.CountAll(),
+		"servers":         ctrl.serverRepo.CountAll(),
+		"running_servers": ctrl.serverRepo.CountRunning(),
+		"recent_servers":  recentServerItems,
+		"recent_users":    userItems,
+	})
 }

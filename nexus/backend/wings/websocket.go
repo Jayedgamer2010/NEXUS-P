@@ -1,108 +1,80 @@
 package wings
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"nexus/backend/models"
 
-	gorillaws "github.com/gorilla/websocket"
-	fiberws "github.com/gofiber/contrib/websocket"
+	"github.com/gorilla/websocket"
 )
 
-type ConsoleConnection struct {
-	Node       *models.Node
-	ServerUUID string
-	WingsConn  *gorillaws.Conn
-	ClientConn *fiberws.Conn
-	Done       chan bool
+type WSProxy struct {
+	node      models.Node
+	uuid      string
+	upgrader  websocket.Upgrader
+	mu        sync.Mutex
+	wsWings   *websocket.Conn
 }
 
-func NewConsoleConnection(node *models.Node, serverUUID string) *ConsoleConnection {
-	return &ConsoleConnection{
-		Node:       node,
-		ServerUUID: serverUUID,
-		Done:       make(chan bool, 1),
+func NewWSProxy(node models.Node, uuid string) *WSProxy {
+	return &WSProxy{
+		node: node,
+		uuid: uuid,
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
 	}
 }
 
-func (cc *ConsoleConnection) ConnectConsole(clientConn *fiberws.Conn) error {
-	cc.ClientConn = clientConn
+func (p *WSProxy) BuildWingsWebSocketURL() string {
+	scheme := "wss"
+	if p.node.Scheme == "http" {
+		scheme = "ws"
+	}
+	return fmt.Sprintf("%s://%s:%d/api/servers/%s/ws", scheme, p.node.FQDN, p.node.DaemonListen, p.uuid)
+}
 
-	wingsURL := fmt.Sprintf("%s://%s:%d/api/servers/%s/ws",
-		cc.Node.Scheme, cc.Node.FQDN, cc.Node.DaemonListen)
+func (p *WSProxy) BuildAuthHeader() string {
+	return fmt.Sprintf("Bearer %s.%s", p.node.DaemonTokenID, p.node.DaemonToken)
+}
 
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+cc.Node.DaemonToken)
-	header.Set("Origin", fmt.Sprintf("%s://%s", cc.Node.Scheme, cc.Node.FQDN))
+func (p *WSProxy) ConnectToWings() (*websocket.Conn, error) {
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
 
-	conn, _, err := gorillaws.DefaultDialer.Dial(wingsURL, header)
+	header := make(http.Header)
+	header.Set("Authorization", p.BuildAuthHeader())
+	header.Set("Origin", p.node.GetConnectionAddress())
+
+	conn, _, err := dialer.Dial(p.BuildWingsWebSocketURL(), header)
 	if err != nil {
-		return fmt.Errorf("failed to connect to wings: %w", err)
+		return nil, fmt.Errorf("dial wings websocket: %w", err)
 	}
-	cc.WingsConn = conn
 
-	go cc.readFromWings()
-	go cc.readFromClient()
+	p.mu.Lock()
+	p.wsWings = conn
+	p.mu.Unlock()
 
-	<-cc.Done
-	return nil
+	return conn, nil
 }
 
-func (cc *ConsoleConnection) readFromWings() {
-	defer func() {
-		cc.Done <- true
-		cc.closeAll()
-	}()
-
-	for {
-		messageType, p, err := cc.WingsConn.ReadMessage()
-		if err != nil {
-			return
-		}
-
-		if err := cc.ClientConn.WriteMessage(messageType, p); err != nil {
-			return
-		}
+func (p *WSProxy) CloseWings() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.wsWings != nil {
+		p.wsWings.Close()
+		p.wsWings = nil
 	}
 }
 
-func (cc *ConsoleConnection) readFromClient() {
-	defer func() {
-		cc.Done <- true
-		cc.closeAll()
-	}()
-
-	for {
-		messageType, p, err := cc.ClientConn.ReadMessage()
-		if err != nil {
-			return
-		}
-
-		var msg map[string]interface{}
-		if bytes.HasPrefix(p, []byte("{")) {
-			if err := json.Unmarshal(p, &msg); err == nil {
-				cc.WingsConn.WriteMessage(messageType, p)
-				continue
-			}
-		}
-
-		commandMsg := map[string]string{"cmd": string(p)}
-		cmdJSON, _ := json.Marshal(commandMsg)
-
-		if err := cc.WingsConn.WriteMessage(gorillaws.TextMessage, cmdJSON); err != nil {
-			return
-		}
-	}
-}
-
-func (cc *ConsoleConnection) closeAll() {
-	if cc.WingsConn != nil {
-		cc.WingsConn.Close()
-	}
-	if cc.ClientConn != nil {
-		cc.ClientConn.Close()
-	}
+func (p *WSProxy) GetUpgrader() *websocket.Upgrader {
+	return &p.upgrader
 }

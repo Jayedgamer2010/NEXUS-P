@@ -1,103 +1,110 @@
 package transformers
 
-import (
-	"nexus/backend/models"
-)
+import "nexus/backend/models"
 
-type ServerTransformed struct {
-	ID           uint                 `json:"id"`
-	UUID         string               `json:"uuid"`
-	UUIDShort    string               `json:"uuid_short"`
-	Name         string               `json:"name"`
-	Description  string               `json:"description"`
-	Status       string               `json:"status"`
-	Suspended    bool                 `json:"suspended"`
-	Memory       int                  `json:"memory"`
-	Disk         int                  `json:"disk"`
-	CPU          int                  `json:"cpu"`
-	Node         *NodeBrief         `json:"node,omitempty"`
-	Egg          *EggBrief          `json:"egg,omitempty"`
-	User         *UserBrief         `json:"user,omitempty"`
-	Allocation   *AllocationBrief   `json:"allocation,omitempty"`
-	CreatedAt    string               `json:"created_at"`
+type ServerItem struct {
+	ID           uint   `json:"id"`
+	UUID         string `json:"uuid"`
+	UUIDShort    string `json:"uuid_short"`
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+	Suspended    bool   `json:"suspended"`
+	Installed    bool   `json:"installed"`
+	Memory       int    `json:"memory"`
+	Disk         int    `json:"disk"`
+	CPU          int    `json:"cpu"`
+	NodeName     string `json:"node_name,omitempty"`
+	UserName     string `json:"user_name,omitempty"`
+	EggName      string `json:"egg_name,omitempty"`
+	Allocation   string `json:"allocation,omitempty"`
+	CreatedAt    string `json:"created_at"`
 }
 
-type NodeBrief struct {
-	ID   uint   `json:"id"`
-	UUID string `json:"uuid"`
-	Name string `json:"name"`
-	FQDN string `json:"fqdn"`
+type ServerDetail struct {
+	ID           uint   `json:"id"`
+	UUID         string `json:"uuid"`
+	UUIDShort    string `json:"uuid_short"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Status       string `json:"status"`
+	Suspended    bool   `json:"suspended"`
+	Installed    bool   `json:"installed"`
+	Memory       int    `json:"memory"`
+	Disk         int    `json:"disk"`
+	CPU          int    `json:"cpu"`
+	Swap         int    `json:"swap"`
+	IO           int    `json:"io"`
+	Image        string `json:"image"`
+	Startup      string `json:"startup"`
+	UserID       uint   `json:"user_id"`
+	NodeID       uint   `json:"node_id"`
+	EggID        uint   `json:"egg_id"`
+	AllocationID uint   `json:"allocation_id"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
-type EggBrief struct {
-	ID   uint   `json:"id"`
-	UUID string `json:"uuid"`
-	Name string `json:"name"`
-}
-
-type UserBrief struct {
-	ID       uint   `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-}
-
-type AllocationBrief struct {
-	ID   uint   `json:"id"`
-	IP   string `json:"ip"`
-	Port int    `json:"port"`
-}
-
-func TransformServer(server models.Server) ServerTransformed {
-	s := ServerTransformed{
+func TransformServer(server models.Server) ServerItem {
+	item := ServerItem{
 		ID:        server.ID,
 		UUID:      server.UUID,
 		UUIDShort: server.UUIDShort,
 		Name:      server.Name,
 		Status:    server.Status,
 		Suspended: server.Suspended,
+		Installed: server.Installed,
 		Memory:    server.Memory,
 		Disk:      server.Disk,
 		CPU:       server.CPU,
 		CreatedAt: server.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
-	if server.Node.ID > 0 {
-		s.Node = &NodeBrief{
-			ID:   server.Node.ID,
-			UUID: server.Node.UUID,
-			Name: server.Node.Name,
-			FQDN: server.Node.FQDN,
-		}
+	if server.User != nil {
+		item.UserName = server.User.Username
 	}
-	if server.Egg.ID > 0 {
-		s.Egg = &EggBrief{
-			ID:   server.Egg.ID,
-			UUID: server.Egg.UUID,
-			Name: server.Egg.Name,
-		}
+	if server.Node != nil {
+		item.NodeName = server.Node.Name
 	}
-	if server.User.ID > 0 {
-		s.User = &UserBrief{
-			ID:       server.User.ID,
-			Username: server.User.Username,
-			Email:    server.User.Email,
-		}
+	if server.Egg != nil {
+		item.EggName = server.Egg.Name
 	}
-	if server.Allocation.ID > 0 {
-		s.Allocation = &AllocationBrief{
-			ID:   server.Allocation.ID,
-			IP:   server.Allocation.IP,
-			Port: server.Allocation.Port,
-		}
+	if server.Allocation != nil {
+		item.Allocation = server.Allocation.GetDisplayName()
 	}
 
-	return s
+	return item
 }
 
-func TransformServers(servers []models.Server) []ServerTransformed {
-	result := make([]ServerTransformed, len(servers))
-	for i, s := range servers {
-		result[i] = TransformServer(s)
+func TransformServerDetail(server models.Server) ServerDetail {
+	return ServerDetail{
+		ID:           server.ID,
+		UUID:         server.UUID,
+		UUIDShort:    server.UUIDShort,
+		Name:         server.Name,
+		Description:  server.Description,
+		Status:       server.Status,
+		Suspended:    server.Suspended,
+		Installed:    server.Installed,
+		Memory:       server.Memory,
+		Disk:         server.Disk,
+		CPU:          server.CPU,
+		Swap:         server.Swap,
+		IO:           server.IO,
+		Image:        server.Image,
+		Startup:      server.Startup,
+		UserID:       server.UserID,
+		NodeID:       server.NodeID,
+		EggID:        server.EggID,
+		AllocationID: server.AllocationID,
+		CreatedAt:    server.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:    server.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
-	return result
+}
+
+func TransformServers(servers []models.Server) []ServerItem {
+	items := make([]ServerItem, len(servers))
+	for i, s := range servers {
+		items[i] = TransformServer(s)
+	}
+	return items
 }

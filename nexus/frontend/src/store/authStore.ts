@@ -1,44 +1,26 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { User } from '../types';
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import type { User } from '../types'
 
-interface AuthState {
-  token: string | null;
-  user: User | null;
-  isAuthenticated: boolean;
-  login: (token: string, user: User) => void;
-  logout: () => void;
-  setUser: (user: User) => void;
+interface AuthStore {
+  user: User | null
+  token: string | null
+  isAuthenticated: boolean
+  login: (token: string, user: User) => void
+  logout: () => void
+  setUser: (user: User) => void
 }
 
-export const useAuthStore = create<AuthState>()(
+export const useAuthStore = create<AuthStore>()(
   persist(
     (set) => ({
-      token: null,
       user: null,
+      token: null,
       isAuthenticated: false,
-
-      login: (token: string, user: User) =>
-        set({
-          token,
-          user,
-          isAuthenticated: true,
-        }),
-
-      logout: () =>
-        set({
-          token: null,
-          user: null,
-          isAuthenticated: false,
-        }),
-
-      setUser: (user: User) =>
-        set({
-          user,
-        }),
+      login: (token, user) => set({ token, user, isAuthenticated: true }),
+      logout: () => set({ token: null, user: null, isAuthenticated: false }),
+      setUser: (user) => set({ user }),
     }),
-    {
-      name: 'nexus-auth',
-    }
+    { name: 'nexus-auth' }
   )
-);
+)

@@ -1,87 +1,98 @@
 package wings
 
-import "encoding/json"
-
-type ServerDetails struct {
-	UUID        string `json:"uuid"`
-	UUIDShort   string `json:"uuid_short"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Suspended   bool   `json:"suspended"`
-	Memory      int    `json:"memory"`
-	Disk        int    `json:"disk"`
-	CPU         int    `json:"cpu"`
-}
+import "time"
 
 type ServerResources struct {
-	CPUAbsolute    float64 `json:"cpu_absolute"`
-	MemoryBytes    int64   `json:"memory_bytes"`
-	MemoryLimit    int64   `json:"memory_limit_bytes"`
-	DiskBytes      int64   `json:"disk_bytes"`
-	DiskLimit      int64   `json:"disk_limit_bytes"`
-	NetworkRXBytes int64   `json:"network_rx_bytes"`
-	NetworkTXBytes int64   `json:"network_tx_bytes"`
-	State          string  `json:"state"`
-	Uptime         int64   `json:"uptime"`
-}
-
-type SystemInfo struct {
-	Version   string `json:"version"`
-	Uptime    int64  `json:"uptime"`
-	Hostname  string `json:"hostname"`
-	Architecture string `json:"architecture"`
+	CPUAbsolute     float64 `json:"cpu_absolute"`
+	MemoryBytes     int64   `json:"memory_bytes"`
+	DiskBytes       int64   `json:"disk_bytes"`
+	NetworkRxBytes  int64   `json:"network_rx_bytes"`
+	NetworkTxBytes  int64   `json:"network_tx_bytes"`
+	State           string  `json:"state"`
+	Uptime          int64   `json:"uptime"`
 }
 
 type CreateServerPayload struct {
 	UUID              string            `json:"uuid"`
 	StartOnCompletion bool              `json:"start_on_completion"`
-	Build             BuildConfig       `json:"build"`
-	Container         ContainerConfig  `json:"container"`
-	Allocation        AllocationConfig `json:"allocation"`
+	Image             string            `json:"image"`
+	Startup           StartupConfig     `json:"startup"`
+	Environment       map[string]string `json:"environment"`
+	Limits            ServerLimits      `json:"limits"`
+	FeatureLimits     FeatureLimits     `json:"feature_limits"`
+	Allocations       AllocationConfig  `json:"allocations"`
 }
 
-type BuildConfig struct {
-	MemoryLimit    int     `json:"memory_limit"`
-	Swap           int     `json:"swap"`
-	Disk           int     `json:"disk"`
-	IOWeight       int     `json:"io_weight"`
-	CPU            int     `json:"cpu"`
-	Threads        string  `json:"threads,omitempty"`
-	OOMDisabled    bool    `json:"oom_disabled"`
+type ServerLimits struct {
+	Memory  int    `json:"memory"`
+	Swap    int    `json:"swap"`
+	Disk    int    `json:"disk"`
+	IO      int    `json:"io"`
+	CPU     int    `json:"cpu"`
+	Threads string `json:"threads"`
 }
 
-type ContainerConfig struct {
-	Image       string            `json:"image"`
-	Startup     string            `json:"startup_command"`
-	Environment map[string]string `json:"environment"`
+type StartupConfig struct {
+	Done             string   `json:"done"`
+	UserInteraction  []string `json:"user_interaction"`
+	StripAnsi        []string `json:"strip_ansi"`
 }
 
 type AllocationConfig struct {
-	Default    int           `json:"default"`
-	Additional []interface{} `json:"additional"`
+	Default    int   `json:"default"`
+	Additional []int `json:"additional"`
 }
 
-type PowerActionPayload struct {
-	Action string `json:"signal"`
+type FeatureLimits struct {
+	Databases   int `json:"databases"`
+	Allocations int `json:"allocations"`
+	Backups     int `json:"backups"`
 }
 
-type ErrorResponse struct {
-	ErrMsg string `json:"error"`
-	Trace  string `json:"trace,omitempty"`
+type CreateTokenResponse struct {
+	Data struct {
+		Token string `json:"token"`
+	} `json:"data"`
 }
 
-func (e *ErrorResponse) Error() string {
-	return e.ErrMsg
+type ConsoleWSResponse struct {
+	Data struct {
+		Token     string `json:"token"`
+		Socket    string `json:"socket"`
+	} `json:"data"`
 }
 
-type SuccessResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
+type PowerPayload struct {
+	Action string `json:"action"`
 }
 
-func (s *SuccessResponse) UnmarshalJSON(data []byte) error {
-	type Alias SuccessResponse
-	aux := &struct{ *Alias }{Alias: (*Alias)(s)}
-	return json.Unmarshal(data, &aux)
+type SystemInfo struct {
+	Version   string `json:"version"`
+	Docker    bool   `json:"docker"`
+	System    string `json:"system"`
+}
+
+type ServerInfo struct {
+	State         string `json:"state"`
+	Suspended     bool   `json:"suspended"`
+	IsInstalling  bool   `json:"is_installing"`
+	Uptime        int64  `json:"uptime"`
+	MemoryBytes   int64  `json:"memory_bytes"`
+	DiskBytes     int64  `json:"disk_bytes"`
+	CPUAbsolute   float64 `json:"cpu_absolute"`
+	NetworkRx     int64  `json:"network_rx_bytes"`
+	NetworkTx     int64  `json:"network_tx_bytes"`
+}
+
+type ServerConsoleToken struct {
+	Data struct {
+		Token  string `json:"token"`
+		Socket string `json:"socket"`
+	} `json:"data"`
+}
+
+type _time struct{}
+
+func (t _time) Now() time.Time {
+	return time.Now()
 }

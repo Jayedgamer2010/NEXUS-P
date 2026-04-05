@@ -1,29 +1,40 @@
-import { Outlet, useLocation } from 'react-router-dom';
-import Sidebar from './Sidebar';
-import Header from './Header';
-import './Layout.css';
+import { Outlet, useLocation } from 'react-router-dom'
+import Sidebar from './Sidebar'
+import Header from './Header'
 
-const pageTitleMap: Record<string, string> = {
+const titles: Record<string, string> = {
   '/admin/dashboard': 'Dashboard',
   '/admin/servers': 'Servers',
   '/admin/nodes': 'Nodes',
   '/admin/users': 'Users',
   '/admin/eggs': 'Eggs',
-};
+}
 
-export default function Layout({ children }: { children?: React.ReactNode }) {
-  const location = useLocation();
-  const title = pageTitleMap[location.pathname] || 'NEXUS';
+export default function Layout() {
+  const location = useLocation()
+
+  // Find the best matching title
+  let title = 'Admin'
+  for (const [path, label] of Object.entries(titles)) {
+    if (location.pathname === path || location.pathname.startsWith(path + '/')) {
+      title = label
+      // For detail pages, append info
+      if (location.pathname.split('/').length > 3 && path !== '/admin/nodes' && path !== '/admin/eggs') {
+        title = label.replace(/s$/, '') + ' Detail'
+      }
+      break
+    }
+  }
 
   return (
-    <div className="layout">
+    <div className="nx-layout">
       <Sidebar />
-      <main className="main-content">
+      <div className="nx-content">
         <Header title={title} />
-        <div className="page-content">
-          {children ?? <Outlet />}
+        <div className="nx-page">
+          <Outlet />
         </div>
-      </main>
+      </div>
     </div>
-  );
+  )
 }

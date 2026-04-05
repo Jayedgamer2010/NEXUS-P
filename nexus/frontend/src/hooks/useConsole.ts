@@ -1,109 +1,68 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAuthStore } from '../store/authStore';
+import { useEffect, useRef } from 'react'
+import type { Terminal } from '@xterm/xterm'
 
-interface UseConsoleOptions {
-  serverUUID: string;
-  onMessage?: (message: string) => void;
-  autoReconnect?: boolean;
-  maxReconnectAttempts?: number;
-}
+export function useConsole(terminal: Terminal | null, serverUUID: string) {
+  const wsRef = useRef<WebSocket | null>(null)
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const attemptsRef = useRef(0)
+  const maxAttempts = 5
 
-export function useConsole({ serverUUID, onMessage, autoReconnect = true, maxReconnectAttempts = 5 }: UseConsoleOptions) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectAttempts = useRef(0);
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const token = useAuthStore((state) => state.token);
+  const connect = () => {
+    if (!terminal || !serverUUID) return
 
-  const connect = useCallback(() => {
-    if (!token) {
-      console.error('No auth token available');
-      return;
-    }
+    const token = (() => {
+      try {
+        const stored = localStorage.getItem('nexus-auth')
+        return stored ? JSON.parse(stored)?.state?.token : null
+      } catch { return null }
+    })()
 
-    setConnectionStatus('connecting');
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const wsProtocol = baseUrl.startsWith('https') ? 'wss' : 'ws';
-    const host = baseUrl.replace(/^https?:\/\//, '');
-    const wsUrl = `${wsProtocol}://${host}/ws/console?server_uuid=${serverUUID}&token=${token}`;
-    const ws = new WebSocket(wsUrl);
+    const apiUrl = import.meta.env.VITE_API_URL || window.location.origin
+    const wsUrl = apiUrl.replace('https://', 'wss://').replace('http://', 'ws://')
+    const url = wsUrl + '/ws/console?server=' + serverUUID + '&token=' + token
+
+    terminal.writeln('\r\n\x1b[33mConnecting to server console...\x1b[0m')
+
+    const ws = new WebSocket(url)
+    wsRef.current = ws
 
     ws.onopen = () => {
-      setIsConnected(true);
-      setConnectionStatus('connected');
-      reconnectAttempts.current = 0;
-    };
+      attemptsRef.current = 0
+      terminal.writeln('\x1b[32mConnected.\x1b[0m\r\n')
+    }
 
     ws.onmessage = (event) => {
-      const message = event.data;
-      if (onMessage) {
-        onMessage(message);
-      }
-    };
+      terminal.write(event.data)
+    }
 
     ws.onclose = () => {
-      setIsConnected(false);
-      setConnectionStatus('disconnected');
-      wsRef.current = null;
-
-      if (autoReconnect && reconnectAttempts.current < maxReconnectAttempts) {
-        reconnectAttempts.current++;
-        setConnectionStatus('disconnected');
-        reconnectTimeout.current = setTimeout(() => {
-          connect();
-        }, 3000);
+      if (attemptsRef.current < maxAttempts) {
+        attemptsRef.current++
+        terminal.writeln('\r\n\x1b[31mDisconnected. Reconnecting in 3s...\x1b[0m')
+        reconnectRef.current = setTimeout(connect, 3000)
+      } else {
+        terminal.writeln('\r\n\x1b[31mFailed to connect after ' + maxAttempts + ' attempts.\x1b[0m')
       }
-    };
+    }
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
+    ws.onerror = () => {
+      terminal.writeln('\r\n\x1b[31mConnection error.\x1b[0m')
+    }
+  }
 
-    wsRef.current = ws;
-  }, [serverUUID, token, onMessage, autoReconnect, maxReconnectAttempts]);
-
-  const send = useCallback((message: string) => {
+  const sendCommand = (command: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(message);
+      wsRef.current.send(JSON.stringify({ event: 'send command', args: [command] }))
     }
-  }, []);
-
-  const disconnect = useCallback(() => {
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current);
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setIsConnected(false);
-    setConnectionStatus('disconnected');
-  }, []);
-
-  const reconnect = useCallback(() => {
-    disconnect();
-    setTimeout(() => connect(), 100);
-  }, [connect, disconnect]);
+  }
 
   useEffect(() => {
-    connect();
-
+    connect()
     return () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [connect]);
+      if (reconnectRef.current) clearTimeout(reconnectRef.current)
+      wsRef.current?.close()
+    }
+  }, [terminal, serverUUID])
 
-  return {
-    isConnected,
-    connectionStatus,
-    send,
-    disconnect,
-    reconnect,
-  };
+  return { sendCommand }
 }

@@ -1,69 +1,55 @@
 package config
 
 import (
-	"fmt"
-	"log"
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	AppName      string
-	AppPort      string
-	AppSecret    string
-	DBDriver     string
-	DatabaseURL  string
-	DBPath       string
-	DBHost       string
-	DBPort       string
-	DBName       string
-	DBUser       string
-	DBPass       string
-	JWTSecret    string
-	JWTExpire    int
-	WingsTokenID string
-	WingsToken   string
+	AppName       string
+	AppPort       string
+	DBDriver      string
+	DatabaseURL   string
+	DBPath        string
+	JWTSecret     string
+	JWTExpire     int
+	AdminEmail    string
+	AdminPassword string
+	AdminUsername string
 }
 
 func Load() *Config {
-	// Load .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found, using environment variables")
+	port := os.Getenv("APP_PORT")
+	if port == "" {
+		port = "3000"
 	}
-
+	name := os.Getenv("APP_NAME")
+	if name == "" {
+		name = "NEXUS"
+	}
+	driver := os.Getenv("DB_DRIVER")
+	if driver == "" {
+		driver = "sqlite"
+	}
+	dbURL := os.Getenv("DATABASE_URL")
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./nexus.db"
+	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "change-this-to-random-32-char-string"
+	}
+	expire := 72
 	return &Config{
-		AppName:      getEnv("APP_NAME", "NEXUS"),
-		AppPort:      getEnv("APP_PORT", "3000"),
-		AppSecret:    getEnv("APP_SECRET", "changeme"),
-		DBDriver:     getEnv("DB_DRIVER", "sqlite"),
-		DatabaseURL:  getEnv("DATABASE_URL", ""),
-		DBPath:       getEnv("DB_PATH", "./nexus.db"),
-		DBHost:       getEnv("DB_HOST", "localhost"),
-		DBPort:      getEnv("DB_PORT", "3306"),
-		DBName:       getEnv("DB_NAME", "nexus"),
-		DBUser:       getEnv("DB_USER", "root"),
-		DBPass:       getEnv("DB_PASS", ""),
-		JWTSecret:    getEnv("JWT_SECRET", "changeme"),
-		JWTExpire:    getEnvAsInt("JWT_EXPIRE_HOURS", 72),
-		WingsTokenID: getEnv("WINGS_TOKEN_ID", ""),
-		WingsToken:   getEnv("WINGS_TOKEN", ""),
+		AppName:       name,
+		AppPort:       port,
+		DBDriver:      driver,
+		DatabaseURL:   dbURL,
+		DBPath:        dbPath,
+		JWTSecret:     jwtSecret,
+		JWTExpire:     expire,
+		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		AdminUsername: os.Getenv("ADMIN_USERNAME"),
 	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value, exists := os.LookupEnv(key); exists {
-		var intValue int
-		fmt.Sscanf(value, "%d", &intValue)
-		return intValue
-	}
-	return defaultValue
 }

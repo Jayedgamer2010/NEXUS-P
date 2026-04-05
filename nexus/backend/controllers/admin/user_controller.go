@@ -14,125 +14,147 @@ import (
 )
 
 type UserController struct {
-	svc      *services.UserService
-	allocRepo *repositories.AllocationRepository
+	userRepo    *repositories.UserRepository
+	userService *services.UserService
 }
 
-func NewUserController(svc *services.UserService, allocRepo *repositories.AllocationRepository) *UserController {
-	return &UserController{svc: svc, allocRepo: allocRepo}
+func NewUserController(
+	userRepo *repositories.UserRepository,
+	userService *services.UserService,
+) *UserController {
+	return &UserController{userRepo: userRepo, userService: userService}
 }
 
-func (uc *UserController) GetAll(c *fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+func (ctrl *UserController) GetAll(c *fiber.Ctx) error {
+	page := utils.GetPage(c)
+	perPage := utils.GetPerPage(c)
+	search := c.Query("search", "")
 
-	users, total, err := uc.svc.All(page, limit)
+	users, total, err := ctrl.userRepo.FindAll(page, perPage, search)
 	if err != nil {
-		return utils.InternalError(c, "Failed to fetch users")
+		return utils.Error(c, 500, "Failed to fetch users")
 	}
 
-	return utils.Paginated(c, transformers.TransformUsers(users), total, page, limit)
+	return utils.PaginatedResponse(c, transformers.TransformUsers(users), utils.BuildMeta(total, page, perPage))
 }
 
-func (uc *UserController) Create(c *fiber.Ctx) error {
+func (ctrl *UserController) Create(c *fiber.Ctx) error {
 	var req requests.CreateUserRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
-	}
-	if errors := utils.ValidateRequest(req); errors != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	user, err := uc.svc.Create(req)
-	if err != nil {
-		if err == services.ErrEmailTaken {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Email already in use"))
-		}
-		if err == services.ErrUsernameTaken {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Username already in use"))
-		}
-		return utils.InternalError(c, "Failed to create user")
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(transformers.TransformUser(user.Sanitize())))
+	if _, err := ctrl.userRepo.FindByEmail(req.Email); err == nil {
+		return utils.Error(c, 422, "Email already in use")
+	}
+	if _, err := ctrl.userRepo.FindByUsername(req.Username); err == nil {
+		return utils.Error(c, 422, "Username already in use")
+	}
+
+	role := "client"
+	if req.Role == "admin" {
+		role = "admin"
+	}
+
+	user := &models.User{
+		Username:  req.Username,
+		Email:     req.Email,
+		Role:      role,
+		RootAdmin: req.RootAdmin,
+		Coins:     req.Coins,
+	}
+	if err := user.HashPassword(req.Password); err != nil {
+		return utils.Error(c, 500, "Failed to hash password")
+	}
+
+	if err := ctrl.userRepo.Create(user); err != nil {
+		return utils.Error(c, 500, "Failed to create user")
+	}
+
+	return utils.Success(c, transformers.TransformUserDetail(*user))
 }
 
-func (uc *UserController) GetByID(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid user ID")
-	}
-
-	user, err := uc.svc.FindByID(uint(id))
+func (ctrl *UserController) GetOne(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
 	if err != nil {
-		return utils.InternalError(c, "Failed to fetch user")
-	}
-	if user == nil {
-		return utils.Error(c, fiber.StatusNotFound, "User not found")
+		return utils.Error(c, 400, "Invalid user ID")
 	}
 
-	return utils.Success(c, transformers.TransformUser(user.Sanitize()), "User retrieved")
+	user, err := ctrl.userRepo.FindByID(uint(id))
+	if err != nil {
+		return utils.Error(c, 404, "User not found")
+	}
+
+	return utils.Success(c, transformers.TransformUserDetail(*user))
 }
 
-func (uc *UserController) Update(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid user ID")
+func (ctrl *UserController) Update(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil {
+		return utils.Error(c, 400, "Invalid user ID")
 	}
 
-	user, err := uc.svc.FindByID(uint(id))
-	if err != nil || user == nil {
-		return utils.Error(c, fiber.StatusNotFound, "User not found")
+	user, err := ctrl.userRepo.FindByID(uint(id))
+	if err != nil {
+		return utils.Error(c, 404, "User not found")
 	}
 
 	var req requests.UpdateUserRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	if err := uc.svc.Update(user, req); err != nil {
-		return utils.InternalError(c, "Failed to update user")
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
 	}
 
-	return utils.Success(c, transformers.TransformUser(user.Sanitize()), "User updated")
+	if req.Username != "" {
+		user.Username = req.Username
+	}
+	if req.Email != "" {
+		// Check email uniqueness if changed
+		existing, err := ctrl.userRepo.FindByEmail(req.Email)
+		if err == nil && existing.ID != user.ID {
+			return utils.Error(c, 422, "Email already in use")
+		}
+		user.Email = req.Email
+	}
+	if req.Role != "" {
+		user.Role = req.Role
+	}
+	if req.RootAdmin != nil {
+		user.RootAdmin = *req.RootAdmin
+	}
+	if req.Coins != nil {
+		user.Coins = *req.Coins
+	}
+	if req.Suspended != nil {
+		user.Suspended = *req.Suspended
+	}
+
+	if err := ctrl.userService.Update(user, req.Password); err != nil {
+		return utils.Error(c, 500, "Failed to update user")
+	}
+
+	return utils.Success(c, transformers.TransformUserDetail(*user))
 }
 
-func (uc *UserController) Delete(c *fiber.Ctx) error {
-	id, _ := strconv.ParseUint(c.Params("id"), 10, 64)
-	if id == 0 {
-		return utils.BadRequest(c, "Invalid user ID")
+func (ctrl *UserController) Delete(c *fiber.Ctx) error {
+	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil {
+		return utils.Error(c, 400, "Invalid user ID")
 	}
 
-	user, err := uc.svc.FindByID(uint(id))
-	if err != nil || user == nil {
-		return utils.Error(c, fiber.StatusNotFound, "User not found")
+	if err := ctrl.userService.Delete(uint(id)); err != nil {
+		if err == services.ErrUserHasServers {
+			return utils.Error(c, 422, "Cannot delete user with existing servers")
+		}
+		return utils.Error(c, 500, "Failed to delete user")
 	}
 
-	if err := uc.svc.Delete(user); err != nil {
-		return utils.InternalError(c, "Failed to delete user")
-	}
-
-	return utils.Success(c, nil, "User deleted")
-}
-
-func (uc *UserController) GetMyServers(c *fiber.Ctx) error {
-	return nil // placeholder - client server logic in client controller
-}
-
-func (uc *UserController) GetMyServer(c *fiber.Ctx) error {
-	return nil
-}
-
-func (uc *UserController) GetResources(c *fiber.Ctx) error {
-	return nil
-}
-
-func (uc *UserController) GetMyServerByUUID(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
-	}
-
-	_ = user // used in final implementation
-	return utils.Success(c, nil, "OK")
+	return utils.SuccessMessage(c, "User deleted successfully", nil)
 }

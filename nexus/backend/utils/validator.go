@@ -1,41 +1,53 @@
 package utils
 
 import (
+	"strings"
+
 	"github.com/go-playground/validator/v10"
 )
 
-var validate = validator.New()
+var validate *validator.Validate
 
-// ValidateRequest validates a request struct and returns a map of field to error message.
-// Returns nil if valid.
-func ValidateRequest(req interface{}) map[string]string {
+func init() {
+	validate = validator.New()
+}
+
+func Validate(req interface{}) map[string]string {
 	err := validate.Struct(req)
 	if err == nil {
 		return nil
 	}
 
-	errors := make(map[string]string)
-	for _, fieldErr := range err.(validator.ValidationErrors) {
-		var msg string
-		switch fieldErr.Tag() {
+	validationErrors := err.(validator.ValidationErrors)
+	messages := make(map[string]string)
+
+	for _, fe := range validationErrors {
+		field := strings.ToLower(fe.Field())
+		tag := fe.Tag()
+
+		switch tag {
 		case "required":
-			msg = "This field is required"
-		case "min":
-			msg = "Minimum value is " + fieldErr.Param()
-		case "max":
-			msg = "Maximum value is " + fieldErr.Param()
+			messages[field] = "This field is required"
 		case "email":
-			msg = "Must be a valid email address"
-		case "alphanum":
-			msg = "Only alphanumeric characters allowed"
-		case "hostname", "ip":
-			msg = "Must be a valid hostname or IP address"
-		case "oneof":
-			msg = "Must be one of: " + fieldErr.Param()
+			messages[field] = "Must be a valid email address"
+		case "min":
+			param := fe.Param()
+			if param == "" {
+				messages[field] = "Value is too small"
+			} else {
+				messages[field] = "Must be at least " + param
+			}
+		case "max":
+			param := fe.Param()
+			if param == "" {
+				messages[field] = "Value is too large"
+			} else {
+				messages[field] = "Must be no more than " + param
+			}
 		default:
-			msg = "Invalid value"
+			messages[field] = "Invalid value for " + field
 		}
-		errors[fieldErr.Field()] = msg
 	}
-	return errors
+
+	return messages
 }

@@ -1,78 +1,81 @@
 package controllers
 
 import (
+	"errors"
 	"nexus/backend/models"
-	"nexus/backend/requests"
 	"nexus/backend/services"
-	"nexus/backend/transformers"
+	"nexus/backend/requests"
 	"nexus/backend/utils"
+	"nexus/backend/transformers"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type AuthController struct {
-	userService *services.UserService
+	authService *services.AuthService
 }
 
-func NewAuthController(userSvc *services.UserService) *AuthController {
-	return &AuthController{userService: userSvc}
+func NewAuthController(authService *services.AuthService) *AuthController {
+	return &AuthController{authService: authService}
 }
 
-func (ac *AuthController) Register(c *fiber.Ctx) error {
+func (ctrl *AuthController) Register(c *fiber.Ctx) error {
 	var req requests.RegisterRequest
 	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
-	}
-	if errors := utils.ValidateRequest(req); errors != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	user, token, err := ac.userService.Register(req)
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
+	}
+
+	user, token, err := ctrl.authService.Register(req)
 	if err != nil {
-		if err == services.ErrEmailTaken {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Email already in use"))
+		switch {
+		case errors.Is(err, services.ErrEmailTaken):
+			return utils.Error(c, 422, "The email address is already in use")
+		case errors.Is(err, services.ErrUsernameTaken):
+			return utils.Error(c, 422, "The username is already in use")
+		default:
+			return utils.Error(c, 500, "Failed to create account")
 		}
-		if err == services.ErrUsernameTaken {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ErrorResponse("Username already in use"))
-		}
-		return utils.InternalError(c, "Failed to create account")
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(fiber.Map{
-		"user":  transformers.TransformUser(user.Sanitize()),
-		"token": token,
-	}))
-}
-
-func (ac *AuthController) Login(c *fiber.Ctx) error {
-	var req requests.LoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return utils.BadRequest(c, "Invalid request body")
-	}
-	if errors := utils.ValidateRequest(req); errors != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(utils.ValidationErrorResponse(errors))
-	}
-
-	user, token, err := ac.userService.Login(req)
-	if err != nil {
-		return utils.Unauthorized(c, "Invalid credentials")
 	}
 
 	return utils.Success(c, fiber.Map{
-		"user":  transformers.TransformUser(user.Sanitize()),
+		"user":  transformers.TransformUserDetail(*user),
 		"token": token,
-	}, "Login successful")
+	})
 }
 
-func (ac *AuthController) Me(c *fiber.Ctx) error {
-	user, ok := c.Locals("user").(models.User)
-	if !ok {
-		return utils.Unauthorized(c, "Not authenticated")
+func (ctrl *AuthController) Login(c *fiber.Ctx) error {
+	var req requests.LoginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Error(c, 400, "Invalid request body")
 	}
 
-	return utils.Success(c, transformers.TransformUser(user.Sanitize()), "User retrieved")
+	if errs := utils.Validate(req); errs != nil {
+		return utils.ValidationError(c, errs)
+	}
+
+	user, token, err := ctrl.authService.Login(req)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrInvalidCredentials):
+			return utils.Error(c, 401, "Invalid email or password")
+		case errors.Is(err, services.ErrAccountSuspended):
+			return utils.Error(c, 403, "Account is suspended")
+		default:
+			return utils.Error(c, 500, "Failed to login")
+		}
+	}
+
+	return utils.Success(c, fiber.Map{
+		"user":  transformers.TransformUserDetail(*user),
+		"token": token,
+	})
 }
 
-func (ac *AuthController) Logout(c *fiber.Ctx) error {
-	return utils.Success(c, nil, "Logged out")
+func (ctrl *AuthController) GetMe(c *fiber.Ctx) error {
+	user := c.Locals("user").(*models.User)
+	return utils.Success(c, transformers.TransformUserDetail(*user))
 }

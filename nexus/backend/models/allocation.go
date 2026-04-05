@@ -1,23 +1,17 @@
 package models
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
 type Allocation struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	NodeID    uint      `gorm:"not null;index" json:"node_id"`
-	IP        string    `gorm:"size:45;not null" json:"ip"`
-	IPAlias   string    `gorm:"size:45" json:"ip_alias"`
-	Port      int       `gorm:"not null" json:"port"`
-	ServerID  *uint     `gorm:"index" json:"server_id"`
-	Notes     string    `gorm:"type:text" json:"notes"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	Node   Node    `gorm:"foreignKey:NodeID" json:"node,omitempty"`
-	Server *Server `gorm:"foreignKey:ServerID" json:"server,omitempty"`
+	ID       uint    `gorm:"primaryKey" json:"id"`
+	NodeID   uint    `gorm:"index;not null" json:"node_id"`
+	IP       string  `gorm:"size:45;not null" json:"ip"`
+	IPAlias  string  `gorm:"size:45" json:"ip_alias"`
+	Port     int     `gorm:"not null" json:"port"`
+	Notes    string  `gorm:"size:255" json:"notes"`
+	ServerID *uint   `gorm:"index" json:"server_id"`
+	Node     *Node   `gorm:"foreignKey:NodeID" json:"node,omitempty"`
+	Server   *Server `gorm:"foreignKey:ServerID" json:"server,omitempty"`
 }
 
 func (a *Allocation) IsAssigned() bool {
@@ -25,13 +19,8 @@ func (a *Allocation) IsAssigned() bool {
 }
 
 func (a *Allocation) GetDisplayName() string {
+	if a.IPAlias != "" {
+		return fmt.Sprintf("%s:%d", a.IPAlias, a.Port)
+	}
 	return fmt.Sprintf("%s:%d", a.IP, a.Port)
-}
-
-func (a *Allocation) Assign(serverID uint) {
-	a.ServerID = &serverID
-}
-
-func (a *Allocation) Unassign() {
-	a.ServerID = nil
 }

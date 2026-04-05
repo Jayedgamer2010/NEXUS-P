@@ -1,32 +1,29 @@
-import React from 'react';
-import './Alert.css';
-
-type AlertVariant = 'success' | 'error' | 'warning' | 'info';
+import { useState } from 'react'
 
 interface AlertProps {
-  variant?: AlertVariant;
-  title?: string;
-  children: React.ReactNode;
-  onClose?: () => void;
+  type: 'success' | 'error' | 'warning' | 'info'
+  message: string
+  dismissible?: boolean
 }
 
-export default function Alert({
-  variant = 'info',
-  title,
-  children,
-  onClose,
-}: AlertProps) {
+const icons: Record<string, string> = {
+  success: '+',
+  error: '!',
+  warning: '!',
+  info: 'i',
+}
+
+export default function Alert({ type, message, dismissible = true }: AlertProps) {
+  const [visible, setVisible] = useState(true)
+  if (!visible) return null
+
   return (
-    <div className={`alert alert--${variant}`} role="alert">
-      <div className="alert-content">
-        {title && <strong className="alert-title">{title}</strong>}
-        <div className="alert-message">{children}</div>
-      </div>
-      {onClose && (
-        <button className="alert-close" onClick={onClose} aria-label="Close alert">
-          &times;
-        </button>
+    <div className={`nx-alert nx-alert--${type}`}>
+      <span style={{ fontWeight: 600, fontSize: 16, lineHeight: 1 }}>{icons[type]}</span>
+      <div style={{ flex: 1 }}>{message}</div>
+      {dismissible && (
+        <button className="nx-alert-dismiss" onClick={() => setVisible(false)}>x</button>
       )}
     </div>
-  );
+  )
 }

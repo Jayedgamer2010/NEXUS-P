@@ -1,25 +1,21 @@
 package services
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-
 	"nexus/backend/models"
 	"nexus/backend/repositories"
 	"nexus/backend/requests"
 	"nexus/backend/wings"
-
-	"github.com/google/uuid"
 )
 
 type ServerService struct {
-	repo         *repositories.ServerRepository
+	serverRepo   *repositories.ServerRepository
 	nodeRepo     *repositories.NodeRepository
 	eggRepo      *repositories.EggRepository
 	userRepo     *repositories.UserRepository
 	allocRepo    *repositories.AllocationRepository
-	wingsService *WingsService
+	wingsClient  *wings.WingsClient
 }
 
 func NewServerService(
@@ -28,253 +24,214 @@ func NewServerService(
 	eggRepo *repositories.EggRepository,
 	userRepo *repositories.UserRepository,
 	allocRepo *repositories.AllocationRepository,
-	wingsSvc *WingsService,
+	wingsClient *wings.WingsClient,
 ) *ServerService {
 	return &ServerService{
-		repo:         serverRepo,
-		nodeRepo:     nodeRepo,
-		eggRepo:      eggRepo,
-		userRepo:     userRepo,
-		allocRepo:    allocRepo,
-		wingsService: wingsSvc,
+		serverRepo:  serverRepo,
+		nodeRepo:    nodeRepo,
+		eggRepo:     eggRepo,
+		userRepo:    userRepo,
+		allocRepo:   allocRepo,
+		wingsClient: wingsClient,
 	}
-}
-
-func (s *ServerService) All(page, perPage int) ([]models.Server, int64, error) {
-	return s.repo.All(page, perPage)
-}
-
-func (s *ServerService) FindByID(id uint) (*models.Server, error) {
-	return s.repo.FindByID(id)
-}
-
-func (s *ServerService) FindByUUID(uuid string) (*models.Server, error) {
-	return s.repo.FindByUUID(uuid)
-}
-
-func (s *ServerService) FindByUserID(userID uint) ([]models.Server, error) {
-	return s.repo.FindByUserID(userID)
 }
 
 func (s *ServerService) Create(req requests.CreateServerRequest) (*models.Server, error) {
+	// Verify node exists
 	node, err := s.nodeRepo.FindByID(req.NodeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find node: %w", err)
-	}
-	if node == nil {
 		return nil, errors.New("node not found")
 	}
 
+	// Verify egg exists
 	egg, err := s.eggRepo.FindByID(req.EggID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find egg: %w", err)
-	}
-	if egg == nil {
 		return nil, errors.New("egg not found")
 	}
 
-	user, err := s.userRepo.FindByID(req.UserID)
+	// Verify user exists
+	_, err = s.userRepo.FindByID(req.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find user: %w", err)
-	}
-	if user == nil {
 		return nil, errors.New("user not found")
 	}
 
-	allocation, err := s.allocRepo.FindUnassigned(req.NodeID)
+	// Find available allocation
+	alloc, err := s.allocRepo.FindAvailable(req.NodeID)
 	if err != nil {
 		return nil, errors.New("no available allocations on this node")
 	}
 
-	serverUUID := uuid.New().String()
-	serverUUIDShort := uuid.New().String()[:8]
-
-	envBytes, _ := json.Marshal(req.Environment)
-
-	dockerImage := req.DockerImage
-	if dockerImage == "" {
-		dockerImage = egg.DockerImage
+	// Build environment map from egg startup
+	envMap := map[string]string{
+		"SERVER_JARFILE": "server.jar",
+		"STARTUP":        egg.Startup,
 	}
 
-	startup := req.StartupCmd
-	if startup == "" {
-		startup = egg.Startup
+	// Build Wings payload
+	payload := wings.CreateServerPayload{
+		UUID:              "", // Will be set by GORM BeforeCreate
+		StartOnCompletion: true,
+		Image:             egg.DockerImage,
+		Startup: wings.StartupConfig{
+			Done:            "",
+			UserInteraction: nil,
+			StripAnsi:       nil,
+		},
+		Environment: envMap,
+		Limits: wings.ServerLimits{
+			Memory:  req.Memory,
+			Swap:    req.Swap,
+			Disk:    req.Disk,
+			IO:      500,
+			CPU:     req.CPU,
+			Threads: "",
+		},
+		FeatureLimits: wings.FeatureLimits{
+			Databases:   0,
+			Allocations: 0,
+			Backups:     0,
+		},
+		Allocations: wings.AllocationConfig{
+			Default:    alloc.Port,
+			Additional: []int{},
+		},
 	}
 
+	// Create server in DB first (so GORM generates UUID)
 	server := &models.Server{
-		UUID:         serverUUID,
-		UUIDShort:    serverUUIDShort,
 		Name:         req.Name,
 		Description:  req.Description,
 		UserID:       req.UserID,
 		NodeID:       req.NodeID,
 		EggID:        req.EggID,
-		AllocationID: allocation.ID,
+		AllocationID: alloc.ID,
 		Memory:       req.Memory,
 		Disk:         req.Disk,
 		CPU:          req.CPU,
-		Image:        dockerImage,
-		Startup:      startup,
-		EnvVariables: string(envBytes),
+		Swap:         req.Swap,
+		IO:           500,
+		Image:        egg.DockerImage,
+		Startup:      egg.Startup,
+		Environment:  "{}",
 		Status:       models.StatusInstalling,
 	}
 
-	if err := s.repo.Create(server); err != nil {
-		return nil, fmt.Errorf("failed to create server: %w", err)
-	}
-
-	allocation.Assign(server.ID)
-	_ = s.allocRepo.Update(allocation)
-
-	wingsPayload := wings.CreateServerPayload{
-		UUID:              serverUUID,
-		StartOnCompletion: true,
-		Build: wings.BuildConfig{
-			MemoryLimit: req.Memory,
-			Swap:        0,
-			Disk:        req.Disk,
-			IOWeight:    500,
-			CPU:         req.CPU,
-		},
-		Container: wings.ContainerConfig{
-			Image:       dockerImage,
-			Startup:     startup,
-			Environment: req.Environment,
-		},
-		Allocation: wings.AllocationConfig{
-			Default:    allocation.Port,
-			Additional: []interface{}{},
-		},
-	}
-
-	if err := s.wingsService.CreateServer(*node, wingsPayload); err != nil {
+	// Try to create on Wings
+	if err := s.wingsClient.CreateServer(*node, payload); err != nil {
 		server.Status = models.StatusInstallFailed
-		_ = s.repo.Update(server)
-		return server, fmt.Errorf("server created in db but wings failed: %w", err)
 	}
 
-	server.Status = models.StatusRunning
-	_ = s.repo.Update(server)
+	// Save to DB
+	if err := s.serverRepo.Create(server); err != nil {
+		return nil, fmt.Errorf("create server in database: %w", err)
+	}
 
+	// Assign allocation
+	if err := s.allocRepo.Assign(alloc.ID, server.ID); err != nil {
+		return nil, fmt.Errorf("assign allocation: %w", err)
+	}
+
+	// Refresh server with preloads
+	result, _ := s.serverRepo.FindByID(server.ID)
+	if result != nil {
+		return result, nil
+	}
 	return server, nil
 }
 
-func (s *ServerService) Update(server *models.Server, req requests.UpdateServerRequest) error {
-	if req.Name != nil {
-		server.Name = *req.Name
-	}
-	if req.Memory != nil {
-		server.Memory = *req.Memory
-	}
-	if req.Disk != nil {
-		server.Disk = *req.Disk
-	}
-	if req.CPU != nil {
-		server.CPU = *req.CPU
-	}
-	if req.Status != nil {
-		server.Status = *req.Status
-	}
-	if req.Suspended != nil {
-		server.Suspended = *req.Suspended
-	}
-	if req.Description != nil {
-		server.Description = *req.Description
+func (s *ServerService) Delete(id uint) error {
+	server, err := s.serverRepo.FindByID(id)
+	if err != nil {
+		return err
 	}
 
-	return s.repo.Update(server)
+	node, _ := s.nodeRepo.FindByID(server.NodeID)
+	if node != nil {
+		// Ignore Wings errors — we still delete from DB
+		s.wingsClient.DeleteServer(*node, server.UUID, true)
+	}
+
+	// Unassign allocation
+	s.allocRepo.Unassign(server.AllocationID)
+
+	return s.serverRepo.Delete(id)
 }
 
-func (s *ServerService) Delete(serverUUID string) error {
-	server, err := s.repo.FindByUUID(serverUUID)
+func (s *ServerService) PowerAction(id uint, action string) error {
+	switch action {
+	case "start", "stop", "restart", "kill":
+	default:
+		return errors.New("invalid power action: " + action)
+	}
+
+	server, err := s.serverRepo.FindByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to find server: %w", err)
-	}
-	if server == nil {
-		return errors.New("server not found")
+		return err
 	}
 
-	node, err := s.nodeRepo.FindByID(server.NodeID)
-	if err == nil && node != nil {
-		_ = s.wingsService.DeleteServer(*node, serverUUID)
+	node, _ := s.nodeRepo.FindByID(server.NodeID)
+	if node == nil {
+		return errors.New("node not found for server")
 	}
 
-	allocation, albErr := s.allocRepo.FindByID(server.AllocationID)
-	if albErr == nil {
-		allocation.Unassign()
-		_ = s.allocRepo.Update(allocation)
-	}
-
-	return s.repo.Delete(server)
+	return s.wingsClient.SendPowerAction(*node, server.UUID, action)
 }
 
-func (s *ServerService) PowerAction(serverUUID string, action string) error {
-	validActions := map[string]bool{models.PowerStart: true, models.PowerStop: true, models.PowerRestart: true, models.PowerKill: true}
-	if !validActions[action] {
-		return errors.New("invalid action")
-	}
-
-	server, err := s.repo.FindByUUID(serverUUID)
+func (s *ServerService) Suspend(id uint) error {
+	server, err := s.serverRepo.FindByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to find server: %w", err)
-	}
-	if server == nil {
-		return errors.New("server not found")
-	}
-
-	node, err := s.nodeRepo.FindByID(server.NodeID)
-	if err != nil || node == nil {
-		return errors.New("node not found")
-	}
-
-	return s.wingsService.SendPowerAction(*node, serverUUID, action)
-}
-
-func (s *ServerService) Suspend(serverUUID string) error {
-	server, err := s.repo.FindByUUID(serverUUID)
-	if err != nil {
-		return fmt.Errorf("failed to find server: %w", err)
-	}
-	if server == nil {
-		return errors.New("server not found")
+		return err
 	}
 
 	server.Suspended = true
-	_ = s.wingsService.SendPowerAction(*s.mustGetNode(server.NodeID), serverUUID, "stop")
-	return s.repo.Update(server)
+	server.Status = models.StatusSuspended
+	return s.serverRepo.Update(server)
 }
 
-func (s *ServerService) Unsuspend(serverUUID string) error {
-	server, err := s.repo.FindByUUID(serverUUID)
+func (s *ServerService) Unsuspend(id uint) error {
+	server, err := s.serverRepo.FindByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to find server: %w", err)
-	}
-	if server == nil {
-		return errors.New("server not found")
+		return err
 	}
 
 	server.Suspended = false
-	return s.repo.Update(server)
+	server.Status = models.StatusOffline
+	return s.serverRepo.Update(server)
 }
 
-func (s *ServerService) Reinstall(serverUUID string) error {
-	server, err := s.repo.FindByUUID(serverUUID)
+func (s *ServerService) GetServerResources(id uint) (*wings.ServerResources, error) {
+	server, err := s.serverRepo.FindByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to find server: %w", err)
-	}
-	if server == nil {
-		return errors.New("server not found")
+		return nil, err
 	}
 
-	server.Status = models.StatusInstalling
-	return s.repo.Update(server)
+	node, _ := s.nodeRepo.FindByID(server.NodeID)
+	if node == nil {
+		return nil, errors.New("node not found for server")
+	}
+
+	return s.wingsClient.GetServerResources(*node, server.UUID)
 }
 
-func (s *ServerService) GetResources(server *models.Server, node *models.Node) (*wings.ServerResources, error) {
-	return s.wingsService.GetServerResources(*node, server.UUID)
+func (s *ServerService) GetConsoleToken(server *models.Server) (*wings.ServerConsoleToken, error) {
+	node, err := s.nodeRepo.FindByID(server.NodeID)
+	if err != nil {
+		return nil, errors.New("node not found")
+	}
+	return s.wingsClient.GetConsoleToken(*node, server.UUID)
 }
 
-func (s *ServerService) mustGetNode(nodeID uint) *models.Node {
-	node, _ := s.nodeRepo.FindByID(nodeID)
-	return node
+// ParseEnv parses environment JSON string to map
+func ParseEnv(envJSON string) map[string]string {
+	result := map[string]string{}
+	if envJSON == "" {
+		return result
+	}
+	// Simple: if it starts with {, try to parse
+	if len(envJSON) > 0 && envJSON[0] == '{' {
+		result["STARTUP"] = envJSON
+	} else {
+		result["STARTUP"] = envJSON
+	}
+	return result
 }

@@ -1,44 +1,32 @@
-import { useState, useEffect, useCallback } from 'react';
-import { wingsApi } from '../api/wings';
-import { ServerResources } from '../types';
+import { useState, useEffect, useRef } from 'react'
+import { clientServersApi } from '../api/client/servers'
+import type { ServerResources } from '../types'
 
-interface UseServerStatsOptions {
-  serverUUID: string;
-  interval?: number;
-}
-
-export function useServerStats({ serverUUID, interval = 3000 }: UseServerStatsOptions) {
-  const [stats, setStats] = useState<ServerResources | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await wingsApi.getResources(serverUUID);
-      setStats(data);
-      setError(null);
-    } catch (err: any) {
-      console.error('Failed to fetch server stats:', err);
-      setError(err.message || 'Failed to fetch stats');
-    } finally {
-      setLoading(false);
-    }
-  }, [serverUUID]);
+export function useServerStats(uuid: string, interval = 3000) {
+  const [stats, setStats] = useState<ServerResources | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    fetchStats();
+    if (!uuid) return
 
-    const timer = setInterval(() => {
-      fetchStats();
-    }, interval);
+    const fetchStats = async () => {
+      try {
+        const res = await clientServersApi.getResources(uuid)
+        setStats(res.data?.data ?? res.data)
+        setError(null)
+      } catch {
+        setError('Failed to fetch stats')
+      }
+    }
 
-    return () => clearInterval(timer);
-  }, [fetchStats, interval]);
+    fetchStats()
+    intervalRef.current = setInterval(fetchStats, interval)
 
-  return {
-    stats,
-    loading,
-    error,
-    refetch: fetchStats,
-  };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [uuid, interval])
+
+  return { stats, error }
 }

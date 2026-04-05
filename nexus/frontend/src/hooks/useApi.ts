@@ -1,49 +1,36 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react'
 
-interface UseApiState<T> {
-  data: T | null;
-  loading: boolean;
-  error: string | null;
+interface UseApiResult<T> {
+  data: T | null
+  loading: boolean
+  error: string | null
+  refetch: () => void
 }
 
-/**
- * Generic data fetching hook with loading/error/data states.
- *
- * Usage:
- *   const { data, loading, error, refetch } = useApi(
- *     () => adminApi.getUsers(page, 20),
- *     [page]
- *   );
- */
-function useApi<T>(
-  fetchFn: () => Promise<T>,
-  deps: unknown[] = [],
-  autoFetch = true,
-): UseApiState<T> & { refetch: () => void } {
-  const [state, setState] = useState<UseApiState<T>>({
-    data: null,
-    loading: autoFetch,
-    error: null,
-  });
+export function useApi<T>(
+  fetchFn: () => Promise<{ data: any }>,
+  deps: any[] = []
+): UseApiResult<T> {
+  const [data, setData] = useState<T | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetch = useCallback(async () => {
     try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
-      const result = await fetchFn();
-      setState({ data: result, loading: false, error: null });
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'An unexpected error occurred';
-      setState({ data: null, loading: false, error: message });
+      setLoading(true)
+      setError(null)
+      const response = await fetchFn()
+      const result = response.data?.data ?? response.data
+      setData(result)
+    } catch (err: any) {
+      const message = err.response?.data?.message || err.message || 'An error occurred'
+      setError(message)
+    } finally {
+      setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, deps)
 
-  useEffect(() => {
-    if (autoFetch) fetch();
-  }, [fetch, autoFetch]);
+  useEffect(() => { fetch() }, [fetch])
 
-  return { ...state, refetch: fetch };
+  return { data, loading, error, refetch: fetch }
 }
-
-export default useApi;

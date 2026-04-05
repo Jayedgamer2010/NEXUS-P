@@ -1,40 +1,27 @@
-import React from 'react';
-import './Button.css';
-
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'warning' | 'ghost';
-type ButtonSize = 'sm' | 'md' | 'lg';
-
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  loading?: boolean;
-  children: React.ReactNode;
+  variant?: 'primary' | 'secondary' | 'danger' | 'warning' | 'ghost'
+  size?: 'sm' | 'md' | 'lg'
+  loading?: boolean
 }
 
 export default function Button({
   variant = 'primary',
   size = 'md',
   loading = false,
+  children,
   className = '',
   disabled,
-  children,
-  ...rest
+  ...props
 }: ButtonProps) {
-  const classes = [
-    'nexus-btn',
-    `btn--${variant}`,
-    `btn--${size}`,
-    loading && 'btn--loading',
-    (disabled || loading) && 'btn--disabled',
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   return (
-    <button className={classes} disabled={disabled || loading} {...rest}>
-      {loading && <span className="btn-spinner" />}
-      {children}
+    <button
+      className={`nx-btn nx-btn--${variant} nx-btn--${size} ${className}`}
+      disabled={disabled || loading}
+      {...props}
+    >
+      {loading ? (
+        <div className="nx-spinner nx-spinner--sm" />
+      ) : children}
     </button>
-  );
+  )
 }
