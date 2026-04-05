@@ -9,6 +9,7 @@ import ServerDetail from '../pages/admin/ServerDetail';
 import Nodes from '../pages/admin/Nodes';
 import NodeDetail from '../pages/admin/NodeDetail';
 import Users from '../pages/admin/Users';
+import UserDetail from '../pages/admin/UserDetail';
 import Eggs from '../pages/admin/Eggs';
 import NotFound from '../pages/errors/404';
 import Forbidden from '../pages/errors/403';
@@ -68,6 +69,10 @@ export const router = createBrowserRouter([
   {
     path: '/admin/users',
     element: <ProtectedRoute requireAdmin={true}><Users /></ProtectedRoute>,
+  },
+  {
+    path: '/admin/users/:id',
+    element: <ProtectedRoute requireAdmin={true}><UserDetail /></ProtectedRoute>,
   },
   {
     path: '/admin/eggs',

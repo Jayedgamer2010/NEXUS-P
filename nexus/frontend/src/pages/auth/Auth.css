@@ -10,10 +10,10 @@
 .auth-card {
   width: 100%;
   max-width: 420px;
-  background: #131318;
-  border: 1px solid #2a2a3e;
+  background: #0d0d17;
+  border: 1px solid #1e1e30;
   border-radius: 12px;
-  padding: 48px 40px;
+  padding: 40px;
 }
 
 .auth-logo {
@@ -26,14 +26,15 @@
   background-clip: text;
   margin-bottom: 4px;
   letter-spacing: 0.06em;
+  font-family: Inter, sans-serif;
 }
 
-.auth-title {
+.auth-tagline {
   text-align: center;
-  font-size: 18px;
-  font-weight: 500;
-  color: #9ca3af;
+  font-size: 14px;
+  color: #6b7280;
   margin: 0 0 32px 0;
+  font-family: Inter, sans-serif;
 }
 
 .auth-error {
@@ -67,9 +68,9 @@
 }
 
 .form-group input {
-  padding: 14px 16px;
-  background: #0a0a0f;
-  border: 1px solid #2a2a3e;
+  padding: 12px 16px;
+  background: #141420;
+  border: 1px solid #252535;
   border-radius: 8px;
   color: #e5e7eb;
   font-size: 15px;

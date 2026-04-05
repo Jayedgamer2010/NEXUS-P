@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import { adminApi } from '../../api/admin';
@@ -19,6 +20,8 @@ export default function Users() {
     role: 'client' as 'admin' | 'client',
     coins: 0,
   });
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadUsers();
@@ -97,6 +100,7 @@ export default function Users() {
     },
     { key: 'actions', header: 'Actions', render: (_val: string, row: User) => (
       <div className="table-actions">
+        <button onClick={() => navigate(`/admin/users/${row.id}`)}>View</button>
         <button onClick={() => openEdit(row)}>Edit</button>
         <button className="danger" onClick={() => handleDelete(row.id)}>Delete</button>
       </div>

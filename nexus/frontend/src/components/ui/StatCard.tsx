@@ -1,3 +1,4 @@
+import Spinner from './Spinner';
 import './StatCard.css';
 
 interface StatCardProps {
@@ -6,21 +7,30 @@ interface StatCardProps {
   icon?: React.ReactNode;
   accentColor?: string;
   subtitle?: string;
+  loading?: boolean;
 }
 
-export default function StatCard({ title, value, icon, accentColor = '#7c3aed', subtitle }: StatCardProps) {
+export default function StatCard({ title, value, icon, accentColor = '#7c3aed', subtitle, loading = false }: StatCardProps) {
   const displayValue = value ?? 0;
   return (
     <div className="stat-card">
       <div className="stat-card-header">
-        <div className="stat-icon" style={{ color: accentColor }}>
-          {icon}
-        </div>
+        {icon && (
+          <div className="stat-icon" style={{ color: accentColor }}>
+            {icon}
+          </div>
+        )}
         <div className="stat-title">{title}</div>
       </div>
-      <div className="stat-value" style={{ color: accentColor }}>
-        {displayValue}
-      </div>
+      {loading ? (
+        <div className="stat-value-loading">
+          <Spinner size="sm" color={accentColor} />
+        </div>
+      ) : (
+        <div className="stat-value" style={{ color: accentColor }}>
+          {displayValue}
+        </div>
+      )}
       {subtitle && <div className="stat-subtitle">{subtitle}</div>}
     </div>
   );

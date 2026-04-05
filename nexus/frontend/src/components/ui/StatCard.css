@@ -36,3 +36,9 @@
   color: #6b7280;
   margin-top: 4px;
 }
+
+.stat-value-loading {
+  display: flex;
+  align-items: center;
+  height: 40px;
+}
