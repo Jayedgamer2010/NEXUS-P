@@ -1,109 +1,98 @@
-services:
-  mysql:
-    image: mariadb:11.4
-    container_name: mythicaldash_v3_mysql
-    restart: unless-stopped
-    environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-mythicaldash_v3_root}
-      MARIADB_DATABASE: ${MARIADB_DATABASE:-mythicaldash_v3}
-      MARIADB_USER: ${MARIADB_USER:-mythicaldash_v3}
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-mythicaldash_v3_password}
-      MARIADB_AUTO_UPGRADE: "1"
-    volumes:
-      - mariadb_data:/var/lib/mysql
-      - ./mysql/init:/docker-entrypoint-initdb.d
-    networks:
-      - mythicaldash_v3_network
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "mariadb-admin",
-          "ping",
-          "-h",
-          "localhost",
-          "-u",
-          "root",
-          "-pmythicaldsah_v3_root",
-        ]
-      timeout: 20s
-      retries: 10
+# ================================================================
+# NEXUS Dashboard - Docker Compose (Supabase-backed)
+# ================================================================
+# This compose file runs the PHP backend + Vue frontend.
+# Database is Supabase (cloud PostgreSQL + Auth).
+# MySQL has been REMOVED because Supabase IS your database.
+# ================================================================
+# Usage:
+#   1. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env
+#   2. docker compose up -d --build
+# ================================================================
 
+services:
+  # ---- Redis (caching / sessions / rate limiting) ----
   redis:
     image: redis:7-alpine
-    container_name: mythicaldash_v3_redis
+    container_name: nexus_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-mythicaldash_v3_redis}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nexus_redis_password}
     volumes:
       - redis_data:/data
     networks:
-      - mythicaldash_v3_network
+      - nexus_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       timeout: 20s
       retries: 10
 
+  # ---- PHP Backend ----
   backend:
-    image: ghcr.io/mythicalltd/mythicaldash_v3-backend:latest
-    container_name: mythicaldash_v3_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexus_backend
     restart: unless-stopped
     environment:
-      - DATABASE_HOST=mysql
-      - DATABASE_PORT=3306
-      - DATABASE_DATABASE=${MARIADB_DATABASE:-mythicaldash_v3}
-      - DATABASE_USER=${MARIADB_USER:-mythicaldash_v3}
-      - DATABASE_PASSWORD=${MARIADB_PASSWORD:-mythicaldash_v3_password}
-      - DATABASE_ENCRYPTION=xchacha20
+      # Supabase (REQUIRED)
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      # Redis
       - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-mythicaldash_v3_redis}
-      - DATABASE_ENCRYPTION_KEY=${DATABASE_ENCRYPTION_KEY:-zKZ7//AocUD2wCuzjW5rdTbb8FvGBgKTZ8iCATslZ/8=}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-nexus_redis_password}
+      # Pterodactyl
+      - PTERODACTYL_URL=${PTERODACTYL_URL}
+      - PTERODACTYL_API_KEY=${PTERODACTYL_API_KEY}
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./backend/storage/.env:/var/www/html/storage/.env
+      - nexus_attachments:/var/www/html/public/attachments
+      - nexus_backups:/var/www/html/storage/backups
+      - nexus_logs:/var/www/html/storage/logs
+    networks:
+      - nexus_network
     healthcheck:
       test: ["CMD", "php", "cli", "help"]
       timeout: 20s
       retries: 10
-    volumes:
-      - mythicaldash_v3_attachments:/var/www/html/public/attachments
-      - ./.env:/var/www/html/storage/.env
-      - mythicaldash_v3_snapshots:/var/www/html/storage/backups
-    networks:
-      - mythicaldash_v3_network
 
+  # ---- Vue Frontend (Nginx SPA) ----
   frontend:
-    image: ghcr.io/mythicalltd/mythicaldash_v3-frontend:latest
-    container_name: mythicaldash_v3_frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexus_frontend
     restart: unless-stopped
-    volumes: []
+    environment:
+      - VITE_SUPABASE_URL=${SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_PTERODACTYL_URL=${PTERODACTYL_URL}
+      - VITE_APP_NAME=${APP_NAME:-NEXUS}
     depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       backend:
         condition: service_healthy
+    volumes: []
+    networks:
+      - nexus_network
+    ports:
+      - "4832:80"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       timeout: 20s
       retries: 10
-    ports:
-      - "4832:80"
-    networks:
-      - mythicaldash_v3_network
 
 volumes:
-  mariadb_data:
-    driver: local
   redis_data:
     driver: local
-  mythicaldash_v3_attachments:
+  nexus_attachments:
     driver: local
-  mythicaldash_v3_snapshots:
+  nexus_backups:
+    driver: local
+  nexus_logs:
     driver: local
 
 networks:
-  mythicaldash_v3_network:
+  nexus_network:
     driver: bridge
