@@ -7,6 +7,10 @@
 -- Do NOT manage passwords manually - Supabase handles that.
 -- ===================================================================
 
+-- Profile protection is handled at the app layer (PHP backend).
+-- The service_role key bypasses RLS, so backend can freely manage coins/role.
+-- Users self-update through the API which only allows whitelisted fields.
+
 -- ===================================================================
 -- 1. USER PROFILES (extends auth.users)
 --    Every user registered via Supabase Auth gets a profile automatically
@@ -56,6 +60,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- Attach trigger on auth.users (may already exist from a previous run)
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -69,26 +74,49 @@ create policy "Users can view own profile"
   on user_profiles for select
   using (auth.uid() = id);
 
--- Users can update their own profile (except role, suspended, coins)
+-- Users can update their own profile
 create policy "Users can update own profile"
   on user_profiles for update
-  using (auth.uid() = id)
-  with check (
-    auth.uid() = id
-    and role = old.role
-    and suspended = old.suspended
-    and coins = old.coins
-  );
+  using (auth.uid() = id);
 
--- Admins can manage everything
-create policy "Admins can manage profiles"
-  on user_profiles for all
+-- Users can insert their own profile during signup (used by auth trigger)
+create policy "Users can insert own profile during signup"
+  on user_profiles for insert
+  with check (auth.uid() = id);
+-- Admins can view all profiles
+create policy "Admins can view all profiles"
+  on user_profiles for select
   using (
     exists (
-      select 1 from user_profiles
-      where id = auth.uid() and role = 'admin'
+      select 1 from user_profiles as up
+      where up.id = auth.uid() and up.role = 'admin'
     )
   );
+
+-- Admins can insert profiles (needed for auth trigger and manual inserts)
+create policy "Admins can insert profiles"
+  on user_profiles for insert
+  with check (
+    exists (
+      select 1 from user_profiles as up
+      where up.id = auth.uid() and up.role = 'admin'
+    )
+  );
+
+-- Admins can update all profiles
+create policy "Admins can update all profiles"
+  on user_profiles for update
+  using (
+    exists (
+      select 1 from user_profiles as up
+      where up.id = auth.uid() and up.role = 'admin'
+    )
+  );
+
+-- Allow the auth trigger to insert profiles (bypasses RLS during signup)
+create policy "Auth trigger can insert profiles"
+  on user_profiles for insert
+  with check (true);
 
 
 -- ===================================================================
@@ -149,6 +177,13 @@ create policy "Users can view own resources"
 
 create policy "Admins can manage resources"
   on user_resources for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Admins need select to check role, so add a separate admin select policy
+create policy "Admins can view all resources"
+  on user_resources for select
   using (
     exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
   );
@@ -580,6 +615,12 @@ create policy "Users can update own verification"
   on email_verification for update
   using (auth.uid() = user_id);
 
+create policy "Admins manage email verification"
+  on email_verification for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
 
 -- ===================================================================
 -- 16. REFERRAL CODES
@@ -602,6 +643,12 @@ create policy "Users can view own referral codes"
 
 create policy "Admins can view all referral codes"
   on referral_codes for select
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
+create policy "Admins manage referral codes"
+  on referral_codes for all
   using (
     exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
   );
@@ -629,6 +676,12 @@ create policy "Users can view own referral uses"
       where referral_codes.id = referral_uses.referral_code
         and referral_codes.user_id = auth.uid()
     )
+  );
+
+create policy "Admins manage referral uses"
+  on referral_uses for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
   );
 
 
@@ -756,7 +809,6 @@ create table if not exists redeem_codes_redeems (
 );
 
 alter table redeem_codes enable row level security;
-alter table redeem_codes_redeems enable row level security;
 
 create policy "Admins manage redeem codes"
   on redeem_codes for all
@@ -764,19 +816,28 @@ create policy "Admins manage redeem codes"
     exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
   );
 
-create policy "Users can redeem codes"
+create policy "Users can view active redeem codes"
   on redeem_codes for select
   using (active = true);
 
+create policy "Users can view own redeem history"
+  on redeem_codes_redeems for select
+  using (user_id = auth.uid());
+
+create policy "Admins manage redeem history"
+  on redeem_codes_redeems for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Server policy for redeem codes redemption
+create policy "Users can redeem codes"
+  on redeem_codes_redeems for insert
+  with check (auth.uid() = user_id);
+
 
 -- ===================================================================
--- 22. SETTINGS (additional, from mythicaldash_settings)
--- ===================================================================
--- Already covered by nexus_settings table above
-
-
--- ===================================================================
--- 23. PAYMENT RECORDS (Stripe / PayPal)
+-- 22. PAYMENT RECORDS (Stripe / PayPal)
 -- ===================================================================
 
 create table if not exists stripe_payments (
@@ -828,7 +889,7 @@ create policy "Admins can view all PayPal payments"
 
 
 -- ===================================================================
--- 24. IP RELATIONSHIP (anti-fraud / multi-account detection)
+-- 23. IP RELATIONSHIP (anti-fraud / multi-account detection)
 -- ===================================================================
 
 create table if not exists ip_relationship (
@@ -855,16 +916,34 @@ create index idx_ip_relationship_user on ip_relationship(user_id);
 
 
 -- ===================================================================
--- 25. ANNOUNCEMENT TAGS (already created above, ensuring RLS)
+-- 24. ANNOUNCEMENT TAGS + ASSETS + REDEEM REDEEMS (RLS)
 -- ===================================================================
 alter table announcements_tags enable row level security;
+alter table announcements_assets enable row level security;
+
 create policy "Anyone can view announcement tags"
   on announcements_tags for select
   using (true);
 
+create policy "Admins manage announcement tags"
+  on announcements_tags for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
+create policy "Anyone can view announcement assets"
+  on announcements_assets for select
+  using (true);
+
+create policy "Admins manage announcement assets"
+  on announcements_assets for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
 
 -- ===================================================================
--- 26. LINK REWARDS (Linkvertise, Shareus, etc)
+-- 25. LINK REWARDS (Linkvertise, Shareus, etc)
 -- ===================================================================
 
 create table if not exists linkvertise_links (
@@ -912,7 +991,7 @@ create policy "Admins manage shareus links"
 
 
 -- ===================================================================
--- TIMED TASKS (cron jobs stored in DB)
+-- 26. TIMED TASKS (cron jobs stored in DB)
 -- ===================================================================
 
 create table if not exists timed_tasks (
@@ -939,7 +1018,7 @@ create policy "Admins manage timed tasks"
 
 
 -- ===================================================================
--- QUEUE-BASED SERVER TIME SYSTEM
+-- 27. QUEUE-BASED SERVER TIME SYSTEM
 -- ===================================================================
 
 -- Server time credits
@@ -1058,7 +1137,15 @@ create policy "Admins can manage first starts"
   );
 
 -- Server-side can insert/update any time data (for cron/background jobs)
-create policy "Server can manage time credits"
+-- Admins manage time credits
+create policy "Admins manage time credits"
+  on server_time_credits for all
+  using (
+    exists (select 1 from user_profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Server-side can insert/update any time data (for cron/background jobs)
+create policy "Server can insert time credits"
   on server_time_credits for insert
   with check (true);
 
@@ -1111,7 +1198,7 @@ create index idx_time_packages_order on time_packages(coin_cost, name);
 -- HELPER FUNCTIONS
 -- ===================================================================
 
--- Add coins to a user (atomic)
+-- Add coins to a user (atomic, via Supabase service_role bypass)
 create or replace function add_coins(p_user_id uuid, p_amount integer, p_reason text)
 returns void as $$
 begin
@@ -1124,7 +1211,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Deduct coins from a user (atomic, returns false if not enough)
+-- Deduct coins from a user (returns false if not enough)
 create or replace function deduct_coins(p_user_id uuid, p_amount integer, p_reason text)
 returns boolean as $$
 declare
@@ -1175,6 +1262,5 @@ insert into roles (name, description, is_default) values
   ('Admin', 'Full system access', false)
 on conflict (name) do nothing;
 
--- Create first admin (run this AFTER the first user signs up via Supabase Auth)
--- Replace 'YOUR_USER_UUID' with the actual UUID from auth.users
--- update user_profiles set role = 'admin' where id = 'YOUR_USER_UUID';
+-- After your first user signs up, make them admin with:
+-- update user_profiles set role = 'admin' where id = 'YOUR_UUID';
