@@ -10,9 +10,8 @@ RUN npm install -g pnpm
 # Copy package files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Install dependencies with BuildKit cache mount
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+# Install dependencies
+RUN pnpm install --no-frozen-lockfile
 
 # Copy source code
 COPY . .

@@ -51,7 +51,6 @@
 	"packageManager": "pnpm@10.22.0",
 	"dependencies": {
 		"@modyfi/vite-plugin-yaml": "^1.1.1",
-		"@supabase/supabase-js": "^2.101.1",
 		"@tailwindcss/vite": "^4.1.18",
 		"@tanstack/vue-table": "^8.21.3",
 		"@tsconfig/node22": "^22.0.5",

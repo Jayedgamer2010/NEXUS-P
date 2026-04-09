@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: nexus-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - SUPABASE_URL=https://knmnzsnoyrdwahgeegbj.supabase.co
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtubW56c25veXJkd2FoZ2VlZ2JqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NzUwMjgsImV4cCI6MjA5MTE1MTAyOH0.7tNCnInWP8Yr_dShWmcVdNyx0NtGf90iyEhdonumOMw
+      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtubW56c25veXJkd2FoZ2VlZ2JqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU3NTAyOCwiZXhwIjoyMDkxMTUxMDI4fQ.--Y7fT1GS2mLfzimAeEpFwfvIONg7_DNMOTOca6nvLQ
+      - JWT_SECRET=Jayedsheikh20262010
+      - PORT=3000
+    networks:
+      - nexus-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_URL=https://dash.jsnexusp.online
+        - VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+        - VITE_SUPABASE_ANON_KEY=YOUR_ANON_KEY
+    container_name: nexus-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      - backend
+    networks:
+      - nexus-net
+
+networks:
+  nexus-net:
+    driver: bridge
